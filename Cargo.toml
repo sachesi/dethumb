@@ -1,0 +1,13 @@
+[package]
+name = "desktop-thumbnailer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+freedesktop_entry_parser = "1.3"
+freedesktop-icons = "0.4"
+image = "0.25"
+resvg = "0.45"
+usvg = "0.45"
+tiny-skia = "0.11"
+png = "0.17"
