@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=desktop-thumbnailer
+Exec=desktop-thumbnailer %i %o %s
+MimeType=application/x-desktop;
