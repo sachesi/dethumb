@@ -13,12 +13,6 @@ use resvg::usvg::{self, Tree};
 use tiny_skia::{IntSize, Pixmap, Transform};
 
 fn main() {
-    // Debug: Print current user
-    println!(
-        "Running as user: {:?}",
-        env::var("USER").unwrap_or("unknown".to_string())
-    );
-
     let args: Vec<String> = env::args().collect();
     if args.len() != 4 {
         eprintln!("Usage: {} <.desktop> <out.png> <size>", args[0]);
@@ -26,6 +20,10 @@ fn main() {
     }
     let desktop = &args[1];
     let out_png = &args[2];
+    if has_parent_dir_component(out_png) {
+        eprintln!("Refusing unsafe output path with parent traversal: {}", out_png);
+        std::process::exit(1);
+    }
     let size: u32 = args[3].parse().unwrap_or_else(|e| {
         eprintln!("Bad size '{}': {}", args[3], e);
         std::process::exit(1);
@@ -109,10 +107,12 @@ fn find_icon_path(icon: &str, theme: &str, size: u32) -> Option<PathBuf> {
         let p = Path::new(icon);
         println!("Checking absolute path: {:?}", p);
 
-        // Directly check metadata without canonicalization
-        match fs::metadata(p) {
+        // Check metadata for the provided absolute path.
+        match fs::symlink_metadata(p) {
             Ok(metadata) => {
-                if metadata.is_file() {
+                if metadata.file_type().is_symlink() {
+                    println!("Refusing symlink icon path: {:?}", p);
+                } else if metadata.is_file() {
                     // Check read permissions on Unix
                     #[cfg(unix)]
                     {
@@ -211,6 +211,12 @@ fn build_icon_candidates(icon: &str) -> Vec<String> {
     candidates
 }
 
+fn has_parent_dir_component(path: &str) -> bool {
+    Path::new(path)
+        .components()
+        .any(|component| component == std::path::Component::ParentDir)
+}
+
 fn process_svg(path: &Path, out: &str, size: u32) -> Result<(), String> {
     let data = fs::read(path).map_err(|e| format!("Failed to read SVG: {}", e))?;
     let opt = usvg::Options::default();
@@ -294,7 +300,7 @@ fn resize_image(img: DynamicImage, size: u32) -> DynamicImage {
 
 #[cfg(test)]
 mod tests {
-    use super::build_icon_candidates;
+    use super::{build_icon_candidates, has_parent_dir_component};
 
     #[test]
     fn deduplicates_case_variants() {
@@ -306,6 +312,14 @@ mod tests {
     fn includes_stem_variants_once() {
         let candidates = build_icon_candidates("MyIcon.png");
         assert_eq!(candidates, vec!["MyIcon.png", "myicon.png", "MyIcon", "myicon"]);
+    }
+
+    #[test]
+    fn detects_parent_dir_in_output_path() {
+        assert!(has_parent_dir_component("../thumb.png"));
+        assert!(has_parent_dir_component("/tmp/../thumb.png"));
+        assert!(!has_parent_dir_component("/tmp/thumb.png"));
+        assert!(!has_parent_dir_component("thumb.png"));
     }
 }
 
