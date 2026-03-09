@@ -165,13 +165,7 @@ fn find_icon_path(icon: &str, theme: &str, size: u32) -> Option<PathBuf> {
     }
 
     // Proceed to look up icon in themes if absolute path check fails
-    let mut candidates = Vec::new();
-    candidates.push(icon.to_string());
-    candidates.push(icon.to_lowercase());
-    if let Some(stem) = Path::new(icon).file_stem().and_then(|s| s.to_str()) {
-        candidates.push(stem.to_string());
-        candidates.push(stem.to_lowercase());
-    }
+    let candidates = build_icon_candidates(icon);
     for name in &candidates {
         if let Some(p) = lookup(name)
             .with_size(size.try_into().unwrap_or(256))
@@ -196,6 +190,25 @@ fn find_icon_path(icon: &str, theme: &str, size: u32) -> Option<PathBuf> {
     }
     println!("No icon found after searching themes");
     None
+}
+
+fn build_icon_candidates(icon: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut push_unique = |candidate: String| {
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    };
+
+    push_unique(icon.to_string());
+    push_unique(icon.to_lowercase());
+
+    if let Some(stem) = Path::new(icon).file_stem().and_then(|s| s.to_str()) {
+        push_unique(stem.to_string());
+        push_unique(stem.to_lowercase());
+    }
+
+    candidates
 }
 
 fn process_svg(path: &Path, out: &str, size: u32) -> Result<(), String> {
@@ -272,11 +285,28 @@ fn resize_image(img: DynamicImage, size: u32) -> DynamicImage {
     let nw = (w as f32 * ratio).round() as u32;
     let nh = (h as f32 * ratio).round() as u32;
     let mut out = DynamicImage::new_rgba8(size, size);
-    let small = img.resize(nw, nh, image::imageops::FilterType::Lanczos3);
+    let small = img.resize(nw, nh, image::imageops::FilterType::Triangle);
     let x = (size - nw) / 2;
     let y = (size - nh) / 2;
     image::imageops::overlay(&mut out, &small, x.into(), y.into());
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_icon_candidates;
+
+    #[test]
+    fn build_icon_candidates_deduplicates_equivalent_values() {
+        let candidates = build_icon_candidates("ICON");
+        assert_eq!(candidates, vec!["ICON", "icon"]);
+    }
+
+    #[test]
+    fn build_icon_candidates_includes_stem_variants_once() {
+        let candidates = build_icon_candidates("MyIcon.png");
+        assert_eq!(candidates, vec!["MyIcon.png", "myicon.png", "MyIcon", "myicon"]);
+    }
 }
 
 fn create_fallback_thumbnail(out: &str, size: u32) {
