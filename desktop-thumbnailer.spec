@@ -2,7 +2,7 @@
 %define debug_package %{nil}
 
 Name:           desktop-thumbnailer
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
@@ -42,7 +42,13 @@ install -Dm0644 desktop-thumbnailer.thumbnailer \
 :
 
 %changelog
-* Sat May 17 2025 sachesi <sachesi.bb.passp@proton.me> - 0.2.0-1
-- Fix spec for --build-in-place
-- Correct binary and thumbnailer file names
-- Remove unused Source0 and broken %%setup macro
+* Sun Mar 09 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.0-1
+- Reorganize project directories
+- Refactor thumbnailer logic into focused modules for readability and maintainability
+- Address review feedback in module refactor
+- Harden path handling for safer thumbnail generation
+- Reduce duplicate icon lookups and speed up resize filter
+- Rename candidate generation unit tests
+
+* Sat Mar 08 2026 sachesi <sachesi.bb.passp@proton.me> - 0.1.0-1
+- Initial release
