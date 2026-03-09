@@ -297,13 +297,13 @@ mod tests {
     use super::build_icon_candidates;
 
     #[test]
-    fn build_icon_candidates_deduplicates_equivalent_values() {
+    fn deduplicates_case_variants() {
         let candidates = build_icon_candidates("ICON");
         assert_eq!(candidates, vec!["ICON", "icon"]);
     }
 
     #[test]
-    fn build_icon_candidates_includes_stem_variants_once() {
+    fn includes_stem_variants_once() {
         let candidates = build_icon_candidates("MyIcon.png");
         assert_eq!(candidates, vec!["MyIcon.png", "myicon.png", "MyIcon", "myicon"]);
     }
