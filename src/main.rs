@@ -3,13 +3,15 @@ use std::fs;
 
 use freedesktop_entry_parser::parse_entry;
 
-mod icon_lookup;
-mod path_safety;
-mod thumbnail;
+mod core {
+    pub mod icon_lookup;
+    pub mod path_safety;
+    pub mod thumbnail;
+}
 
-use icon_lookup::{find_icon_path, get_current_theme};
-use path_safety::has_parent_dir_component;
-use thumbnail::{create_fallback_thumbnail, process_png, process_svg};
+use core::icon_lookup::{find_icon_path, get_current_theme};
+use core::path_safety::has_parent_dir_component;
+use core::thumbnail::{create_fallback_thumbnail, process_png, process_svg};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -20,7 +22,10 @@ fn main() {
     let desktop = &args[1];
     let out_png = &args[2];
     if has_parent_dir_component(out_png) {
-        eprintln!("Refusing unsafe output path with parent traversal: {}", out_png);
+        eprintln!(
+            "Refusing unsafe output path with parent traversal: {}",
+            out_png
+        );
         std::process::exit(1);
     }
     let size: u32 = args[3].parse().unwrap_or_else(|e| {
@@ -39,11 +44,14 @@ fn main() {
         create_fallback_thumbnail(out_png, size);
         std::process::exit(1);
     });
-    let icon = entry.section("Desktop Entry").attr("Icon").unwrap_or_else(|| {
-        eprintln!("No Icon= in .desktop");
-        create_fallback_thumbnail(out_png, size);
-        std::process::exit(1);
-    });
+    let icon = entry
+        .section("Desktop Entry")
+        .attr("Icon")
+        .unwrap_or_else(|| {
+            eprintln!("No Icon= in .desktop");
+            create_fallback_thumbnail(out_png, size);
+            std::process::exit(1);
+        });
     println!("Icon value from .desktop: {}", icon);
 
     let theme = get_current_theme().unwrap_or_else(|| "hicolor".to_string());
