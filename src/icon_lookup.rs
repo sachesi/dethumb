@@ -1,7 +1,8 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use freedesktop_icons::lookup;
 
@@ -93,7 +94,7 @@ pub fn find_icon_path(icon: &str, theme: &str, size: u32) -> Option<PathBuf> {
     None
 }
 
-/// Build ordered, de-duplicated icon lookup candidates.
+/// Build ordered, deduplicated icon lookup candidates.
 pub fn build_icon_candidates(icon: &str) -> Vec<String> {
     let mut candidates = Vec::new();
     let mut push_unique = |candidate: String| {
@@ -116,12 +117,11 @@ pub fn build_icon_candidates(icon: &str) -> Vec<String> {
 fn has_supported_icon_extension(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
         let ext = ext.to_lowercase();
-        if ["png", "jpg", "jpeg", "svg"].contains(&ext.as_str()) {
-            true
-        } else {
+        let supported = ["png", "jpg", "jpeg", "svg"].contains(&ext.as_str());
+        if !supported {
             println!("Unsupported extension: {}", ext);
-            false
         }
+        supported
     } else {
         println!("No extension found for: {:?}", path);
         false
