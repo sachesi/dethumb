@@ -10,8 +10,8 @@
 - [x] Added unit/integration tests for dispatch and cache behavior.
 - [ ] Implement native Windows shell/resource extraction backend.
 - [ ] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
-- [ ] Add backend observability counters and fallback reason telemetry.
-- [ ] Add malformed PE fuzzing and resource-threshold hardening tests.
+- [x] Add backend observability counters and fallback reason telemetry.
+- [ ] Add malformed PE fuzzing and resource-threshold hardening tests (resource-threshold + malformed-header unit tests landed; fuzzing still open).
 
 ## 1) Platform Scope and High-Level Behavior
 
