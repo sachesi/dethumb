@@ -1,3 +1,4 @@
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::desktop::thumbnail::{IconFormat, detect_icon_format, process_raster, process_svg};
@@ -96,10 +97,35 @@ fn validate_pe_header(path: &Path) -> Result<(), ExeThumbError> {
         });
     }
 
-    let mut header = [0_u8; 2];
     let mut file = std::fs::File::open(path).map_err(map_io(path))?;
-    let bytes_read = std::io::Read::read(&mut file, &mut header).map_err(map_io(path))?;
-    if bytes_read < 2 || header[0] != b'M' || header[1] != b'Z' {
+    let mut dos_header = [0_u8; 64];
+    let bytes_read = file.read(&mut dos_header).map_err(map_io(path))?;
+    if bytes_read < dos_header.len() || dos_header[0] != b'M' || dos_header[1] != b'Z' {
+        return Err(ExeThumbError::InvalidPeFormat {
+            path: path.to_path_buf(),
+        });
+    }
+
+    let pe_header_offset = u32::from_le_bytes([
+        dos_header[0x3c],
+        dos_header[0x3d],
+        dos_header[0x3e],
+        dos_header[0x3f],
+    ]) as u64;
+    if pe_header_offset
+        .checked_add(4)
+        .is_none_or(|end| end > metadata.len())
+    {
+        return Err(ExeThumbError::InvalidPeFormat {
+            path: path.to_path_buf(),
+        });
+    }
+
+    file.seek(SeekFrom::Start(pe_header_offset))
+        .map_err(map_io(path))?;
+    let mut pe_signature = [0_u8; 4];
+    file.read_exact(&mut pe_signature).map_err(map_io(path))?;
+    if pe_signature != [b'P', b'E', 0, 0] {
         return Err(ExeThumbError::InvalidPeFormat {
             path: path.to_path_buf(),
         });
@@ -145,7 +171,21 @@ mod tests {
     use super::generate_exe_thumbnail;
     use crate::exe::error::ExeThumbError;
     use crate::exe::telemetry::{FallbackReason, reset, snapshot};
+    use std::io::{Seek, SeekFrom, Write};
+    use std::path::Path;
     use tempfile::TempDir;
+
+    fn write_minimal_pe(path: &Path) {
+        let mut bytes = vec![0_u8; 256];
+        bytes[0] = b'M';
+        bytes[1] = b'Z';
+
+        let pe_offset: u32 = 0x80;
+        bytes[0x3c..0x40].copy_from_slice(&pe_offset.to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+
+        assert!(std::fs::write(path, bytes).is_ok());
+    }
 
     #[test]
     fn rejects_zero_thumbnail_size_for_executables() {
@@ -187,6 +227,52 @@ mod tests {
                 .fallback_reasons
                 .contains_key(&FallbackReason::NoIconAvailable)
         );
+    }
+
+    #[test]
+    fn rejects_invalid_pe_offset() {
+        let tmp = TempDir::new();
+        assert!(tmp.is_ok());
+        let Ok(tmp) = tmp else {
+            panic!("tempdir should be created");
+        };
+
+        let input = tmp.path().join("broken_offset.exe");
+        let output = tmp.path().join("thumb.png");
+
+        let mut bytes = vec![0_u8; 64];
+        bytes[0] = b'M';
+        bytes[1] = b'Z';
+        let invalid_offset: u32 = 0xFFFF_FFF0;
+        bytes[0x3c..0x40].copy_from_slice(&invalid_offset.to_le_bytes());
+        assert!(std::fs::write(&input, bytes).is_ok());
+
+        let result = generate_exe_thumbnail(&input, &output, 64);
+        assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
+    }
+
+    #[test]
+    fn rejects_bad_pe_signature() {
+        let tmp = TempDir::new();
+        assert!(tmp.is_ok());
+        let Ok(tmp) = tmp else {
+            panic!("tempdir should be created");
+        };
+
+        let input = tmp.path().join("broken_signature.exe");
+        let output = tmp.path().join("thumb.png");
+        write_minimal_pe(&input);
+
+        let patch_result = std::fs::OpenOptions::new().write(true).open(&input);
+        assert!(patch_result.is_ok());
+        let Ok(mut file) = patch_result else {
+            panic!("test executable should be writable");
+        };
+        assert!(file.seek(SeekFrom::Start(0x80)).is_ok());
+        assert!(file.write_all(b"PX\0\0").is_ok());
+
+        let result = generate_exe_thumbnail(&input, &output, 64);
+        assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
     }
 
     #[test]
