@@ -1,6 +1,8 @@
 use std::path::Path;
 
 use image::imageops::FilterType;
+use pelite::PeFile;
+use pelite::resources::FindError;
 
 use crate::exe::error::ExeThumbError;
 use crate::exe::extractor::ExeIconExtractor;
@@ -81,6 +83,40 @@ struct GroupIconEntry {
 }
 
 fn find_best_group_icon(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
+    find_best_group_icon_pelite(bytes, size).or_else(|| find_best_group_icon_manual(bytes, size))
+}
+
+fn find_best_group_icon_pelite(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
+    let pe = PeFile::from_bytes(bytes).ok()?;
+    let resources = pe.resources().ok()?;
+    let mut best: Option<(u64, image::DynamicImage)> = None;
+
+    for icon_result in resources.icons() {
+        let (_name, group_icon) = match icon_result {
+            Ok(icon) => icon,
+            Err(FindError::NotFound) => continue,
+            Err(_) => continue,
+        };
+
+        let mut ico = Vec::new();
+        if group_icon.write(&mut ico).is_err() {
+            continue;
+        }
+        let Some(decoded) = decode_icon_blob(&ico) else {
+            continue;
+        };
+
+        let score = u64::from(decoded.width()).abs_diff(u64::from(size))
+            + u64::from(decoded.height()).abs_diff(u64::from(size));
+        if best.as_ref().is_none_or(|(current, _)| score < *current) {
+            best = Some((score, decoded));
+        }
+    }
+
+    best.map(|(_, decoded)| decoded)
+}
+
+fn find_best_group_icon_manual(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
     let pe_offset = usize::try_from(read_u32_le(bytes, PE_SIGNATURE_OFFSET)?).ok()?;
     if bytes.get(pe_offset..pe_offset + 4)? != b"PE\0\0" {
         return None;
