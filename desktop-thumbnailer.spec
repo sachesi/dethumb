@@ -2,7 +2,7 @@
 %define debug_package %{nil}
 
 Name:           desktop-thumbnailer
-Version:        0.2.0
+Version:        0.2.10
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
@@ -42,6 +42,12 @@ install -Dm0644 desktop-thumbnailer.thumbnailer \
 :
 
 %changelog
+* Thu Apr 02 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.10-1
+- Refactor architecture around library entrypoints and core module boundaries
+- Harden icon/path validation and error handling for safer runtime behavior
+- Improve image rendering pipeline and reduce duplicate fallback/output writing code
+- Enable stricter rust/clippy lint configuration and add focused unit tests
+
 * Sun Mar 09 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.0-1
 - Reorganize project directories
 - Refactor thumbnailer logic into focused modules for readability and maintainability
