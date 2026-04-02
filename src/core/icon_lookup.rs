@@ -1,131 +1,124 @@
+use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use freedesktop_icons::lookup;
 
+use crate::core::thumbnail::detect_icon_format;
+
+const LOOKUP_FALLBACK_SIZE: u16 = 256;
+const FALLBACK_THEMES: [&str; 2] = ["Adwaita", "Papirus"];
+
 /// Read the current desktop icon theme via `gsettings`.
+#[must_use]
 pub fn get_current_theme() -> Option<String> {
-    Command::new("gsettings")
+    let output = Command::new("gsettings")
         .args(["get", "org.gnome.desktop.interface", "icon-theme"])
         .output()
-        .ok()
-        .and_then(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .trim()
-                .trim_matches('\'')
-                .to_string()
-                .into()
-        })
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let theme = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .trim_matches('\'')
+        .trim()
+        .to_owned();
+
+    if theme.is_empty() { None } else { Some(theme) }
 }
 
 /// Resolve an icon to a concrete file path, handling absolute and themed icons.
+#[must_use]
 pub fn find_icon_path(icon: &str, theme: &str, size: u32) -> Option<PathBuf> {
-    println!("Searching for icon: {}", icon);
-    if icon.starts_with('/') {
-        let p = Path::new(icon);
-        println!("Checking absolute path: {:?}", p);
-
-        // Validate the provided absolute path before using it.
-        match fs::symlink_metadata(p) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() {
-                    println!("Refusing symlink icon path: {:?}", p);
-                } else if metadata.is_file() {
-                    #[cfg(unix)]
-                    {
-                        let mode = metadata.permissions().mode();
-                        if (mode & 0o444) == 0 {
-                            println!("Insufficient permissions for: {:?}", p);
-                        } else if has_supported_icon_extension(p) {
-                            println!("Found valid icon file: {:?}", p);
-                            return Some(p.to_path_buf());
-                        }
-                    }
-                    #[cfg(not(unix))]
-                    {
-                        if has_supported_icon_extension(p) {
-                            println!("Found valid icon file: {:?}", p);
-                            return Some(p.to_path_buf());
-                        }
-                    }
-                } else {
-                    println!("Path is not a file: {:?}", p);
-                }
-            }
-            Err(e) => {
-                println!("Failed to access path {:?}: {}", p, e);
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    println!("File not found: {:?}", p);
-                } else {
-                    println!("Error accessing file: {:?}", e);
-                }
-            }
-        }
+    let icon = icon.trim();
+    if icon.is_empty() || icon.contains('\0') {
+        return None;
     }
 
-    // Fall back to icon theme lookup when absolute-path lookup is unavailable.
+    if let Some(path) = validate_absolute_icon(icon) {
+        return Some(path);
+    }
+
+    let lookup_size = u16::try_from(size).unwrap_or(LOOKUP_FALLBACK_SIZE);
     let candidates = build_icon_candidates(icon);
+
     for name in &candidates {
-        if let Some(p) = lookup(name)
-            .with_size(size.try_into().unwrap_or(256))
-            .with_theme(theme)
-            .find()
-        {
-            println!("Found icon in theme {}: {:?}", theme, p);
-            return Some(p);
+        if let Some(path) = lookup(name).with_size(lookup_size).with_theme(theme).find() {
+            return Some(path);
         }
     }
-    for fb in &["Adwaita", "Papirus"] {
+
+    for fallback_theme in FALLBACK_THEMES {
         for name in &candidates {
-            if let Some(p) = lookup(name)
-                .with_size(size.try_into().unwrap_or(256))
-                .with_theme(fb)
+            if let Some(path) = lookup(name)
+                .with_size(lookup_size)
+                .with_theme(fallback_theme)
                 .find()
             {
-                println!("Found icon in fallback theme {}: {:?}", fb, p);
-                return Some(p);
+                return Some(path);
             }
         }
     }
-    println!("No icon found after searching themes");
+
     None
 }
 
+fn validate_absolute_icon(icon: &str) -> Option<PathBuf> {
+    let path = Path::new(icon);
+    if !path.is_absolute() {
+        return None;
+    }
+
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        let mode = metadata.permissions().mode();
+        if (mode & 0o444) == 0 {
+            return None;
+        }
+    }
+
+    if matches!(
+        detect_icon_format(path),
+        crate::core::thumbnail::IconFormat::Unsupported
+    ) {
+        return None;
+    }
+
+    Some(path.to_path_buf())
+}
+
 /// Build ordered, deduplicated icon lookup candidates.
+#[must_use]
 pub fn build_icon_candidates(icon: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
     let mut candidates = Vec::new();
-    let mut push_unique = |candidate: String| {
-        if !candidates.contains(&candidate) {
-            candidates.push(candidate);
+
+    let mut push_candidate = |value: String| {
+        if seen.insert(value.clone()) {
+            candidates.push(value);
         }
     };
 
-    push_unique(icon.to_string());
-    push_unique(icon.to_lowercase());
+    push_candidate(icon.to_owned());
+    push_candidate(icon.to_ascii_lowercase());
 
-    if let Some(stem) = Path::new(icon).file_stem().and_then(|s| s.to_str()) {
-        push_unique(stem.to_string());
-        push_unique(stem.to_lowercase());
+    if let Some(stem) = Path::new(icon).file_stem().and_then(|value| value.to_str()) {
+        push_candidate(stem.to_owned());
+        push_candidate(stem.to_ascii_lowercase());
     }
 
     candidates
-}
-
-fn has_supported_icon_extension(path: &Path) -> bool {
-    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-        let ext = ext.to_lowercase();
-        let supported = ["png", "jpg", "jpeg", "svg"].contains(&ext.as_str());
-        if !supported {
-            println!("Unsupported extension: {}", ext);
-        }
-        supported
-    } else {
-        println!("No extension found for: {:?}", path);
-        false
-    }
 }
 
 #[cfg(test)]
@@ -141,6 +134,9 @@ mod tests {
     #[test]
     fn includes_stem_variants_once() {
         let candidates = build_icon_candidates("MyIcon.png");
-        assert_eq!(candidates, vec!["MyIcon.png", "myicon.png", "MyIcon", "myicon"]);
+        assert_eq!(
+            candidates,
+            vec!["MyIcon.png", "myicon.png", "MyIcon", "myicon"]
+        );
     }
 }
