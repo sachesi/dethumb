@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::core::thumbnail::ThumbnailError;
+use crate::desktop::thumbnail::ThumbnailError;
 
 #[derive(Debug, Error)]
 pub enum ExeThumbError {

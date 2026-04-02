@@ -8,6 +8,8 @@
 - [x] Introduced a modular extractor trait (`ExeIconExtractor`) and a concrete fallback backend implementation.
 - [x] Added cache-key infrastructure for executable thumbnails using a sidecar key file.
 - [x] Added unit/integration tests for dispatch and cache behavior.
+- [x] Renamed `.desktop` pipeline modules from `src/core` to `src/desktop` for clearer separation from `.exe` logic.
+- [x] Added executable-size resource-limit regression test coverage.
 - [ ] Implement native Windows shell/resource extraction backend.
 - [ ] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
 - [x] Add backend observability counters and fallback reason telemetry.
@@ -46,7 +48,7 @@ Create a modular extractor pipeline with clear trait boundaries:
 - `src/exe/error.rs`
   - Typed error enum and mapping to user-visible statuses.
 
-Keep existing `src/core/thumbnail.rs` as the orchestrator and delegate `.exe` logic to `src/exe`.
+Keep existing `src/desktop/thumbnail.rs` as the orchestrator and delegate `.exe` logic to `src/exe`.
 
 ## 3) Preferred Extraction Path for `.exe` Icons
 
