@@ -135,4 +135,28 @@ mod tests {
         ];
         assert!(find_ico_blob(&bytes).is_none());
     }
+
+    #[test]
+    fn rejects_excessive_ico_entry_counts() {
+        let bytes = [0_u8, 0, 1, 0, 0xFF, 0xFF, 16, 16, 0, 0, 1, 0, 32, 0];
+        assert!(find_ico_blob(&bytes).is_none());
+    }
+
+    #[test]
+    fn malformed_blob_fuzz_corpus_does_not_panic() {
+        for seed in 0_u8..=255 {
+            let mut bytes = vec![0_u8; 64];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                *byte = seed
+                    .wrapping_mul(53)
+                    .wrapping_add((index as u8).wrapping_mul(19));
+            }
+
+            let found = find_ico_blob(&bytes);
+            if let Some(blob) = found {
+                assert!(!blob.is_empty());
+                assert!(blob.len() <= bytes.len());
+            }
+        }
+    }
 }
