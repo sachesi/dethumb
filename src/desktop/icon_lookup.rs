@@ -7,7 +7,7 @@ use std::process::Command;
 
 use freedesktop_icons::lookup;
 
-use crate::core::thumbnail::detect_icon_format;
+use crate::desktop::thumbnail::detect_icon_format;
 
 const LOOKUP_FALLBACK_SIZE: u16 = 256;
 const FALLBACK_THEMES: [&str; 2] = ["Adwaita", "Papirus"];
@@ -90,7 +90,7 @@ fn validate_absolute_icon(icon: &str) -> Option<PathBuf> {
 
     if matches!(
         detect_icon_format(path),
-        crate::core::thumbnail::IconFormat::Unsupported
+        crate::desktop::thumbnail::IconFormat::Unsupported
     ) {
         return None;
     }

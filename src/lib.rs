@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use freedesktop_entry_parser::parse_entry;
 use thiserror::Error;
 
-pub mod core;
+pub mod desktop;
 pub mod exe;
 
-use core::icon_lookup::{find_icon_path, get_current_theme};
-use core::path_safety::has_parent_dir_component;
-use core::thumbnail::{
+use desktop::icon_lookup::{find_icon_path, get_current_theme};
+use desktop::path_safety::has_parent_dir_component;
+use desktop::thumbnail::{
     IconFormat, ThumbnailError, create_fallback_thumbnail, detect_icon_format, process_raster,
     process_svg,
 };
@@ -22,16 +22,16 @@ const DEFAULT_SIZE: u32 = 256;
 
 #[derive(Debug, Clone)]
 pub struct CliArgs {
-    desktop_path: PathBuf,
+    input_path: PathBuf,
     output_path: PathBuf,
     size: u32,
 }
 
 impl CliArgs {
     #[must_use]
-    pub fn new(desktop_path: PathBuf, output_path: PathBuf, size: u32) -> Self {
+    pub fn new(input_path: PathBuf, output_path: PathBuf, size: u32) -> Self {
         Self {
-            desktop_path,
+            input_path,
             output_path,
             size: if size == 0 { DEFAULT_SIZE } else { size },
         }
@@ -50,7 +50,7 @@ impl CliArgs {
             )));
         }
 
-        let desktop_path = PathBuf::from(&args[1]);
+        let input_path = PathBuf::from(&args[1]);
         let output_path = PathBuf::from(&args[2]);
 
         if has_parent_dir_component(&output_path) {
@@ -64,7 +64,7 @@ impl CliArgs {
                 source,
             })?;
 
-        Ok(Self::new(desktop_path, output_path, parsed_size))
+        Ok(Self::new(input_path, output_path, parsed_size))
     }
 
     #[must_use]
@@ -117,8 +117,8 @@ pub fn run() -> Result<(), AppError> {
 
 pub fn run_with_args(args: &CliArgs) -> Result<(), AppError> {
     let input_path =
-        fs::canonicalize(&args.desktop_path).map_err(|source| AppError::Canonicalize {
-            path: args.desktop_path.clone(),
+        fs::canonicalize(&args.input_path).map_err(|source| AppError::Canonicalize {
+            path: args.input_path.clone(),
             source,
         })?;
 
