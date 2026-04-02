@@ -14,7 +14,7 @@
 - [x] Implement native Windows shell/resource extraction backend.
 - [x] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
 - [x] Add backend observability counters and fallback reason telemetry.
-- [ ] Add malformed PE fuzzing and resource-threshold hardening tests (resource-threshold + malformed-header unit tests landed; fuzzing still open).
+- [x] Add malformed PE fuzzing and resource-threshold hardening tests (added deterministic malformed-corpus coverage for PE header validation and ICO blob scanning).
 
 ## 1) Platform Scope and High-Level Behavior
 
