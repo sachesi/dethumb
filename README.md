@@ -9,3 +9,7 @@ Quick start
 Notes
 - Minimal, focused on producing clear thumbnails for application `.desktop` entries.
 - See `LICENSE` for license details (GPLv3).
+
+Release hygiene
+- Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `cargo audit` before every release.
+- Regularly update dependencies (`cargo update`) and re-run `cargo audit` to keep security advisories current.
