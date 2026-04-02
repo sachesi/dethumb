@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use desktop_thumbnailer::{AppError, CliArgs, run_with_args};
+use dethumb::{AppError, CliArgs, run_with_args};
 use image::{ImageBuffer, Rgba};
 use tempfile::TempDir;
 
@@ -13,7 +13,7 @@ fn write_png(path: &Path) {
 #[test]
 fn rejects_parent_traversal_in_output_argument() {
     let args = vec![
-        "desktop-thumbnailer".to_string(),
+        "dethumb".to_string(),
         "app.desktop".to_string(),
         "../thumb.png".to_string(),
         "256".to_string(),

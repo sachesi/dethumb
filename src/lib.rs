@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn maps_zero_size_to_default() {
         let argv = vec![
-            "desktop-thumbnailer".to_string(),
+            "dethumb".to_string(),
             "in.desktop".to_string(),
             "out.png".to_string(),
             "0".to_string(),
