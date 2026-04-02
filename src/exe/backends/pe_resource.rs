@@ -8,6 +8,8 @@ use crate::exe::extractor::ExeIconExtractor;
 const ICO_HEADER_LEN: usize = 6;
 const ICO_DIR_ENTRY_LEN: usize = 16;
 const MAX_ICON_DIR_ENTRIES: usize = 64;
+const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+const PNG_IEND: &[u8; 4] = b"IEND";
 
 pub struct PeResourceIconExtractor;
 
@@ -27,14 +29,10 @@ fn extract_ico_blob(path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbEr
         source,
     })?;
 
-    let ico_blob = find_ico_blob(&bytes).ok_or_else(|| ExeThumbError::NoIconResource {
-        path: path.to_path_buf(),
-    })?;
-
-    let decoded =
-        image::load_from_memory(ico_blob).map_err(|source| ExeThumbError::DecodeFailed {
+    let decoded = find_best_png_icon(&bytes, size)
+        .or_else(|| find_ico_blob(&bytes).and_then(decode_icon_blob))
+        .ok_or_else(|| ExeThumbError::NoIconResource {
             path: path.to_path_buf(),
-            reason: source.to_string(),
         })?;
 
     let target = decoded.resize(size, size, FilterType::CatmullRom);
@@ -45,6 +43,93 @@ fn extract_ico_blob(path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbEr
             path: out.to_path_buf(),
             reason: source.to_string(),
         })
+}
+
+fn decode_icon_blob(bytes: &[u8]) -> Option<image::DynamicImage> {
+    image::load_from_memory(bytes).ok()
+}
+
+fn find_best_png_icon(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
+    let mut best_match: Option<(u64, image::DynamicImage)> = None;
+
+    for png_blob in find_png_blobs(bytes) {
+        let Some(decoded) = decode_icon_blob(png_blob) else {
+            continue;
+        };
+        let width = u64::from(decoded.width());
+        let height = u64::from(decoded.height());
+        let target = u64::from(size);
+        let score = width.abs_diff(target) + height.abs_diff(target);
+
+        if best_match
+            .as_ref()
+            .is_none_or(|(current_score, _)| score < *current_score)
+        {
+            best_match = Some((score, decoded));
+        }
+    }
+
+    best_match.map(|(_, decoded)| decoded)
+}
+
+fn find_png_blobs(bytes: &[u8]) -> Vec<&[u8]> {
+    if bytes.len() < PNG_SIGNATURE.len() {
+        return Vec::new();
+    }
+
+    let mut blobs = Vec::new();
+    let mut cursor = 0_usize;
+
+    while let Some(start) = find_bytes(bytes, PNG_SIGNATURE, cursor) {
+        if let Some(end) = parse_png_end(bytes, start) {
+            if let Some(blob) = bytes.get(start..end) {
+                blobs.push(blob);
+                cursor = end;
+                continue;
+            }
+        }
+        cursor = start.saturating_add(1);
+    }
+
+    blobs
+}
+
+fn parse_png_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut offset = start + PNG_SIGNATURE.len();
+
+    while offset.checked_add(12)? <= bytes.len() {
+        let length = u32::from_be_bytes([
+            *bytes.get(offset)?,
+            *bytes.get(offset + 1)?,
+            *bytes.get(offset + 2)?,
+            *bytes.get(offset + 3)?,
+        ]) as usize;
+        let chunk_type_offset = offset + 4;
+        let chunk_data_offset = chunk_type_offset + 4;
+        let chunk_end = chunk_data_offset.checked_add(length)?.checked_add(4)?;
+
+        if chunk_end > bytes.len() {
+            return None;
+        }
+
+        let chunk_type = bytes.get(chunk_type_offset..chunk_type_offset + 4)?;
+        offset = chunk_end;
+
+        if chunk_type == PNG_IEND {
+            return Some(chunk_end);
+        }
+    }
+
+    None
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
+    if needle.is_empty() || start >= haystack.len() || needle.len() > haystack.len() {
+        return None;
+    }
+
+    let end = haystack.len() - needle.len();
+    (start..=end).find(|&idx| haystack[idx..idx + needle.len()] == *needle)
 }
 
 fn find_ico_blob(bytes: &[u8]) -> Option<&[u8]> {
@@ -115,7 +200,8 @@ fn find_ico_blob(bytes: &[u8]) -> Option<&[u8]> {
 
 #[cfg(test)]
 mod tests {
-    use super::find_ico_blob;
+    use super::{find_ico_blob, find_png_blobs};
+    use image::{ImageBuffer, Rgba};
 
     #[test]
     fn finds_embedded_ico_blob() {
@@ -158,5 +244,24 @@ mod tests {
                 assert!(blob.len() <= bytes.len());
             }
         }
+    }
+
+    #[test]
+    fn extracts_embedded_png_blob() {
+        let image = ImageBuffer::from_pixel(2, 2, Rgba([255_u8, 0, 0, 255]));
+        let mut png_bytes = Vec::new();
+        let encoded = image::DynamicImage::ImageRgba8(image).write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        );
+        assert!(encoded.is_ok());
+
+        let mut payload = vec![1_u8, 2, 3, 4];
+        payload.extend_from_slice(&png_bytes);
+        payload.extend_from_slice(&[9_u8, 8, 7, 6]);
+
+        let blobs = find_png_blobs(&payload);
+        assert_eq!(blobs.len(), 1);
+        assert_eq!(blobs[0], png_bytes.as_slice());
     }
 }
