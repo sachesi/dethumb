@@ -1,10 +1,12 @@
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use crate::desktop::thumbnail::{IconFormat, detect_icon_format, process_raster, process_svg};
 
+use super::backends::pe_resource::PeResourceIconExtractor;
+use super::backends::windows_shell::WindowsShellIconExtractor;
 use super::cache::{ExeCacheKey, is_cache_hit, write_cache_key};
 use super::error::ExeThumbError;
+use super::pe::validate_executable_header;
 use super::telemetry::{
     FallbackReason, record_cache_hit, record_cache_miss, record_extraction_attempt,
     record_extraction_success, record_fallback_reason,
@@ -15,7 +17,8 @@ const EXE_FALLBACK_ICON_NAMES: &[&str] = &[
     "application-x-executable",
     "application-x-generic",
 ];
-const BACKEND_PLACEHOLDER: &str = "freedesktop-fallback";
+const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource|freedesktop-fallback";
+const FALLBACK_BACKEND_NAME: &str = "freedesktop-fallback";
 const MAX_EXE_BYTES: u64 = 512 * 1024 * 1024;
 
 pub trait ExeIconExtractor {
@@ -52,7 +55,7 @@ impl ExeIconExtractor for FallbackExeIconExtractor {
     }
 
     fn backend_name(&self) -> &'static str {
-        BACKEND_PLACEHOLDER
+        FALLBACK_BACKEND_NAME
     }
 }
 
@@ -65,9 +68,7 @@ pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), 
 
     validate_pe_header(path)?;
 
-    let extractor = FallbackExeIconExtractor;
-    let cache_key =
-        ExeCacheKey::compute(path, size, extractor.backend_name()).map_err(map_io(path))?;
+    let cache_key = ExeCacheKey::compute(path, size, BACKEND_CHAIN_MARKER).map_err(map_io(path))?;
 
     if is_cache_hit(out, &cache_key) {
         record_cache_hit();
@@ -77,16 +78,33 @@ pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), 
     record_cache_miss();
     record_extraction_attempt();
 
-    match extractor.extract_best_icon(path, out, size) {
-        Ok(()) => {
-            record_extraction_success();
-            write_cache_key(out, &cache_key).map_err(map_io(path))
-        }
-        Err(err) => {
-            record_fallback_reason(reason_for_error(&err));
-            Err(err)
+    let extractors: [&dyn ExeIconExtractor; 3] = [
+        &WindowsShellIconExtractor,
+        &PeResourceIconExtractor,
+        &FallbackExeIconExtractor,
+    ];
+
+    let mut last_error = ExeThumbError::NoIconAvailable {
+        path: path.to_path_buf(),
+    };
+
+    for extractor in extractors {
+        match extractor.extract_best_icon(path, out, size) {
+            Ok(()) => {
+                record_extraction_success();
+                return write_cache_key(out, &cache_key).map_err(map_io(path));
+            }
+            Err(err) => {
+                record_fallback_reason(reason_for_error(&err));
+                if !is_retryable_backend_error(&err) {
+                    return Err(err);
+                }
+                last_error = err;
+            }
         }
     }
+
+    Err(last_error)
 }
 
 fn validate_pe_header(path: &Path) -> Result<(), ExeThumbError> {
@@ -98,34 +116,8 @@ fn validate_pe_header(path: &Path) -> Result<(), ExeThumbError> {
     }
 
     let mut file = std::fs::File::open(path).map_err(map_io(path))?;
-    let mut dos_header = [0_u8; 64];
-    let bytes_read = file.read(&mut dos_header).map_err(map_io(path))?;
-    if bytes_read < dos_header.len() || dos_header[0] != b'M' || dos_header[1] != b'Z' {
-        return Err(ExeThumbError::InvalidPeFormat {
-            path: path.to_path_buf(),
-        });
-    }
-
-    let pe_header_offset = u32::from_le_bytes([
-        dos_header[0x3c],
-        dos_header[0x3d],
-        dos_header[0x3e],
-        dos_header[0x3f],
-    ]) as u64;
-    if pe_header_offset
-        .checked_add(4)
-        .is_none_or(|end| end > metadata.len())
-    {
-        return Err(ExeThumbError::InvalidPeFormat {
-            path: path.to_path_buf(),
-        });
-    }
-
-    file.seek(SeekFrom::Start(pe_header_offset))
-        .map_err(map_io(path))?;
-    let mut pe_signature = [0_u8; 4];
-    file.read_exact(&mut pe_signature).map_err(map_io(path))?;
-    if pe_signature != [b'P', b'E', 0, 0] {
+    let is_valid = validate_executable_header(&mut file, metadata.len()).map_err(map_io(path))?;
+    if !is_valid {
         return Err(ExeThumbError::InvalidPeFormat {
             path: path.to_path_buf(),
         });
@@ -141,6 +133,7 @@ fn ensure_readable(path: &Path) -> Result<(), ExeThumbError> {
 
 fn reason_for_error(error: &ExeThumbError) -> FallbackReason {
     match error {
+        ExeThumbError::UnsupportedPlatform => FallbackReason::UnsupportedPlatform,
         ExeThumbError::NoIconAvailable { .. } => FallbackReason::NoIconAvailable,
         ExeThumbError::NoIconResource { .. } => FallbackReason::UnsupportedIconFormat,
         ExeThumbError::InvalidPeFormat { .. } => FallbackReason::InvalidPeFormat,
@@ -148,6 +141,16 @@ fn reason_for_error(error: &ExeThumbError) -> FallbackReason {
         ExeThumbError::Io { .. } => FallbackReason::Io,
         _ => FallbackReason::Other,
     }
+}
+
+fn is_retryable_backend_error(error: &ExeThumbError) -> bool {
+    matches!(
+        error,
+        ExeThumbError::UnsupportedPlatform
+            | ExeThumbError::NoIconAvailable { .. }
+            | ExeThumbError::NoIconResource { .. }
+            | ExeThumbError::DecodeFailed { .. }
+    )
 }
 
 fn map_io(path: &Path) -> impl FnOnce(std::io::Error) -> ExeThumbError + '_ {
@@ -176,13 +179,17 @@ mod tests {
     use tempfile::TempDir;
 
     fn write_minimal_pe(path: &Path) {
-        let mut bytes = vec![0_u8; 256];
+        let mut bytes = vec![0_u8; 512];
         bytes[0] = b'M';
         bytes[1] = b'Z';
 
         let pe_offset: u32 = 0x80;
         bytes[0x3c..0x40].copy_from_slice(&pe_offset.to_le_bytes());
         bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        bytes[0x84..0x86].copy_from_slice(&0x8664_u16.to_le_bytes());
+        bytes[0x86..0x88].copy_from_slice(&4_u16.to_le_bytes());
+        bytes[0x94..0x96].copy_from_slice(&0x00F0_u16.to_le_bytes());
+        bytes[0x98..0x9a].copy_from_slice(&0x020b_u16.to_le_bytes());
 
         assert!(std::fs::write(path, bytes).is_ok());
     }
