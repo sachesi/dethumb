@@ -1,5 +1,18 @@
 # `.exe` Thumbnail Generation: Implementation Plan
 
+## Current Implementation Status (April 2, 2026)
+
+- [x] Added file-kind detection for `.desktop` and `.exe` inputs.
+- [x] Wired `.exe` branch into the shared orchestrator path in `src/lib.rs`.
+- [x] Added a dedicated `.exe` error model with typed variants and conversions.
+- [x] Introduced a modular extractor trait (`ExeIconExtractor`) and a concrete fallback backend implementation.
+- [x] Added cache-key infrastructure for executable thumbnails using a sidecar key file.
+- [x] Added unit/integration tests for dispatch and cache behavior.
+- [ ] Implement native Windows shell/resource extraction backend.
+- [ ] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
+- [ ] Add backend observability counters and fallback reason telemetry.
+- [ ] Add malformed PE fuzzing and resource-threshold hardening tests.
+
 ## 1) Platform Scope and High-Level Behavior
 
 1. **Define supported behavior by OS at compile time**

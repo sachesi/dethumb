@@ -11,6 +11,7 @@ resvg = "0.45"
 tiny-skia = "0.11"
 usvg = "0.45"
 thiserror = "2"
+blake3 = "1"
 
 [lints.rust]
 unsafe_code = "forbid"
