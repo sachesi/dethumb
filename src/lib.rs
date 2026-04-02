@@ -6,6 +6,7 @@ use freedesktop_entry_parser::parse_entry;
 use thiserror::Error;
 
 pub mod core;
+pub mod exe;
 
 use core::icon_lookup::{find_icon_path, get_current_theme};
 use core::path_safety::has_parent_dir_component;
@@ -13,6 +14,9 @@ use core::thumbnail::{
     IconFormat, ThumbnailError, create_fallback_thumbnail, detect_icon_format, process_raster,
     process_svg,
 };
+use exe::detector::{InputKind, detect_input_kind};
+use exe::error::ExeThumbError;
+use exe::extractor::generate_exe_thumbnail;
 
 const DEFAULT_SIZE: u32 = 256;
 
@@ -41,7 +45,7 @@ impl CliArgs {
     pub fn parse_from_slice(args: &[String]) -> Result<Self, AppError> {
         if args.len() != 4 {
             return Err(AppError::Usage(format!(
-                "Usage: {} <.desktop> <out.png> <size>",
+                "Usage: {} <input.desktop|input.exe> <out.png> <size>",
                 args[0]
             )));
         }
@@ -92,12 +96,16 @@ pub enum AppError {
     },
     #[error("Parse .desktop failed: {0}")]
     DesktopParse(String),
+    #[error("Unsupported input type: {0}")]
+    UnsupportedInputType(String),
     #[error("No Icon= in .desktop")]
     MissingIcon,
     #[error("No valid icon path found for: {0}")]
     IconNotFound(String),
     #[error("Unsupported extension on {0}")]
     UnsupportedExtension(String),
+    #[error(transparent)]
+    ExeThumbnail(#[from] ExeThumbError),
     #[error(transparent)]
     Thumbnail(#[from] ThumbnailError),
 }
@@ -108,14 +116,25 @@ pub fn run() -> Result<(), AppError> {
 }
 
 pub fn run_with_args(args: &CliArgs) -> Result<(), AppError> {
-    let desktop_path =
+    let input_path =
         fs::canonicalize(&args.desktop_path).map_err(|source| AppError::Canonicalize {
             path: args.desktop_path.clone(),
             source,
         })?;
 
+    match detect_input_kind(&input_path) {
+        InputKind::DesktopEntry => process_desktop_entry(&input_path, &args.output_path, args.size),
+        InputKind::Executable => generate_exe_thumbnail(&input_path, &args.output_path, args.size)
+            .map_err(AppError::from),
+        InputKind::Unsupported => Err(AppError::UnsupportedInputType(
+            input_path.display().to_string(),
+        )),
+    }
+}
+
+fn process_desktop_entry(input_path: &Path, output_path: &Path, size: u32) -> Result<(), AppError> {
     let entry =
-        parse_entry(&desktop_path).map_err(|source| AppError::DesktopParse(source.to_string()))?;
+        parse_entry(input_path).map_err(|source| AppError::DesktopParse(source.to_string()))?;
     let icon = entry
         .section("Desktop Entry")
         .attr("Icon")
@@ -124,10 +143,10 @@ pub fn run_with_args(args: &CliArgs) -> Result<(), AppError> {
 
     let theme = get_current_theme().unwrap_or_else(|| "hicolor".to_owned());
 
-    let icon_path = find_icon_path(icon, &theme, args.size)
+    let icon_path = find_icon_path(icon, &theme, size)
         .ok_or_else(|| AppError::IconNotFound(icon.to_owned()))?;
 
-    render_icon(&icon_path, &args.output_path, args.size)
+    render_icon(&icon_path, output_path, size)
 }
 
 fn render_icon(icon_path: &Path, output_path: &Path, size: u32) -> Result<(), AppError> {
