@@ -3,6 +3,7 @@ use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FallbackReason {
+    UnsupportedPlatform,
     NoIconAvailable,
     UnsupportedIconFormat,
     InvalidPeFormat,

@@ -10,8 +10,9 @@
 - [x] Added unit/integration tests for dispatch and cache behavior.
 - [x] Renamed `.desktop` pipeline modules from `src/core` to `src/desktop` for clearer separation from `.exe` logic.
 - [x] Added executable-size resource-limit regression test coverage.
-- [ ] Implement native Windows shell/resource extraction backend.
-- [ ] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
+- [x] Hardened PE header validation with machine/section/optional-header bounds checks.
+- [x] Implement native Windows shell/resource extraction backend.
+- [x] Implement pure PE resource parser fallback backend (read-only parsing of `RT_GROUP_ICON`/`RT_ICON`).
 - [x] Add backend observability counters and fallback reason telemetry.
 - [ ] Add malformed PE fuzzing and resource-threshold hardening tests (resource-threshold + malformed-header unit tests landed; fuzzing still open).
 
