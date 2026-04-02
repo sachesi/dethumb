@@ -17,7 +17,7 @@ const EXE_FALLBACK_ICON_NAMES: &[&str] = &[
     "application-x-executable",
     "application-x-generic",
 ];
-const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource|freedesktop-fallback";
+const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource-v2|freedesktop-fallback";
 const FALLBACK_BACKEND_NAME: &str = "freedesktop-fallback";
 const MAX_EXE_BYTES: u64 = 512 * 1024 * 1024;
 
