@@ -96,20 +96,10 @@ fn find_best_group_icon(bytes: &[u8], size: u32) -> Option<image::DynamicImage> 
     let resource_directory = read_resource_directory(bytes, optional_header_offset)?;
     let resource_root = rva_to_file_offset(resource_directory.0, &section_headers)?;
 
-    let icon_blobs = collect_icon_resource_blobs(
-        bytes,
-        resource_root,
-        resource_directory.0,
-        resource_directory.1,
-        &section_headers,
-    )?;
-    let groups = collect_group_icon_blobs(
-        bytes,
-        resource_root,
-        resource_directory.0,
-        resource_directory.1,
-        &section_headers,
-    )?;
+    let icon_blobs =
+        collect_icon_resource_blobs(bytes, resource_root, resource_directory.1, &section_headers)?;
+    let groups =
+        collect_group_icon_blobs(bytes, resource_root, resource_directory.1, &section_headers)?;
 
     let mut best: Option<(u64, image::DynamicImage)> = None;
     for group_blob in groups {
@@ -180,19 +170,13 @@ fn read_section_headers(
 fn collect_icon_resource_blobs(
     bytes: &[u8],
     resource_root: usize,
-    resource_rva: u32,
     resource_size: u32,
     sections: &[SectionHeader],
 ) -> Option<std::collections::BTreeMap<u16, Vec<u8>>> {
     let mut icons = std::collections::BTreeMap::new();
-    for (_lang, data) in collect_resource_data_for_type(
-        bytes,
-        resource_root,
-        resource_rva,
-        resource_size,
-        RT_ICON,
-        sections,
-    )? {
+    for (_lang, data) in
+        collect_resource_data_for_type(bytes, resource_root, resource_size, RT_ICON)?
+    {
         let icon_id = u16::try_from(data.id).ok()?;
         let blob = read_resource_data_entry(bytes, data.data_offset, sections)?;
         icons.insert(icon_id, blob.to_vec());
@@ -203,19 +187,13 @@ fn collect_icon_resource_blobs(
 fn collect_group_icon_blobs(
     bytes: &[u8],
     resource_root: usize,
-    resource_rva: u32,
     resource_size: u32,
     sections: &[SectionHeader],
 ) -> Option<Vec<Vec<u8>>> {
     let mut groups = Vec::new();
-    for (_lang, data) in collect_resource_data_for_type(
-        bytes,
-        resource_root,
-        resource_rva,
-        resource_size,
-        RT_GROUP_ICON,
-        sections,
-    )? {
+    for (_lang, data) in
+        collect_resource_data_for_type(bytes, resource_root, resource_size, RT_GROUP_ICON)?
+    {
         let blob = read_resource_data_entry(bytes, data.data_offset, sections)?;
         groups.push(blob.to_vec());
     }
@@ -231,10 +209,8 @@ struct ResourceLeaf {
 fn collect_resource_data_for_type(
     bytes: &[u8],
     root_offset: usize,
-    resource_rva: u32,
     resource_size: u32,
     target_type: u32,
-    _sections: &[SectionHeader],
 ) -> Option<Vec<(u32, ResourceLeaf)>> {
     let type_entries = read_resource_entries(bytes, root_offset)?;
     let type_entry = type_entries
@@ -245,26 +221,72 @@ fn collect_resource_data_for_type(
     let mut leaves = Vec::new();
 
     for name_entry in name_entries {
-        let name_dir =
-            resolve_resource_subdir(root_offset, name_entry.offset_to_data, resource_size)?;
-        let lang_entries = read_resource_entries(bytes, name_dir)?;
-        for lang_entry in lang_entries {
-            if (lang_entry.offset_to_data & 0x8000_0000) != 0 {
-                continue;
-            }
+        collect_resource_leaves_from_entry(
+            bytes,
+            root_offset,
+            resource_size,
+            name_entry.id,
+            name_entry.offset_to_data,
+            0,
+            &mut leaves,
+        )?;
+    }
+
+    Some(leaves)
+}
+
+fn collect_resource_leaves_from_entry(
+    bytes: &[u8],
+    root_offset: usize,
+    resource_size: u32,
+    name_id: u32,
+    offset_to_data: u32,
+    depth: usize,
+    out: &mut Vec<(u32, ResourceLeaf)>,
+) -> Option<()> {
+    if depth > 2 {
+        return Some(());
+    }
+
+    if (offset_to_data & 0x8000_0000) == 0 {
+        let data_offset = resolve_resource_data_entry(root_offset, offset_to_data, resource_size)?;
+        out.push((
+            0,
+            ResourceLeaf {
+                id: name_id,
+                data_offset,
+            },
+        ));
+        return Some(());
+    }
+
+    let dir_offset = resolve_resource_subdir(root_offset, offset_to_data, resource_size)?;
+    let entries = read_resource_entries(bytes, dir_offset)?;
+    for entry in entries {
+        if (entry.offset_to_data & 0x8000_0000) == 0 {
             let data_offset =
-                resolve_resource_data_entry(root_offset, lang_entry.offset_to_data, resource_size)?;
-            leaves.push((
-                lang_entry.id,
+                resolve_resource_data_entry(root_offset, entry.offset_to_data, resource_size)?;
+            out.push((
+                entry.id,
                 ResourceLeaf {
-                    id: name_entry.id,
+                    id: name_id,
                     data_offset,
                 },
             ));
+        } else {
+            collect_resource_leaves_from_entry(
+                bytes,
+                root_offset,
+                resource_size,
+                name_id,
+                entry.offset_to_data,
+                depth + 1,
+                out,
+            )?;
         }
     }
-    let _ = resource_rva;
-    Some(leaves)
+
+    Some(())
 }
 
 #[derive(Clone, Copy)]
