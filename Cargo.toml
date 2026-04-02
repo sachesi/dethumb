@@ -1,5 +1,5 @@
 [package]
-name = "desktop-thumbnailer"
+name = "dethumb"
 version = "0.2.10"
 edition = "2024"
 

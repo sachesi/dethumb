@@ -1,13 +1,13 @@
 %define _debugsource_template %{nil}
 %define debug_package %{nil}
 
-Name:           desktop-thumbnailer
+Name:           dethumb
 Version:        0.2.10
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
 License:        GPL-3.0-or-later
-URL:            https://github.com/sachesi/desktop-thumbnailer
+URL:            https://github.com/sachesi/dethumb
 
 BuildRequires:  rust
 BuildRequires:  cargo
@@ -24,16 +24,16 @@ GTK file managers via the freedesktop thumbnailer protocol.
 cargo build --release
 
 %install
-install -Dm0755 target/release/desktop-thumbnailer \
-    %{buildroot}%{_bindir}/desktop-thumbnailer
-install -Dm0644 desktop-thumbnailer.thumbnailer \
-    %{buildroot}%{_datadir}/thumbnailers/desktop-thumbnailer.thumbnailer
+install -Dm0755 target/release/dethumb \
+    %{buildroot}%{_bindir}/dethumb
+install -Dm0644 dethumb.thumbnailer \
+    %{buildroot}%{_datadir}/thumbnailers/dethumb.thumbnailer
 
 %files
 %license LICENSE
 %doc README.md
-%{_bindir}/desktop-thumbnailer
-%{_datadir}/thumbnailers/desktop-thumbnailer.thumbnailer
+%{_bindir}/dethumb
+%{_datadir}/thumbnailers/dethumb.thumbnailer
 
 %post
 :

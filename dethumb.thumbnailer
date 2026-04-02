@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=dethumb
+Exec=dethumb %i %o %s
+MimeType=application/x-desktop;

@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(desktop_thumbnailer::run_with_fallback());
+    std::process::exit(dethumb::run_with_fallback());
 }
