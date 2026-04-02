@@ -1,4 +1,4 @@
 [Thumbnailer Entry]
 TryExec=dethumb
 Exec=dethumb %i %o %s
-MimeType=application/x-desktop;
+MimeType=application/x-desktop;application/x-ms-dos-executable;application/x-dosexec;application/vnd.microsoft.portable-executable;
