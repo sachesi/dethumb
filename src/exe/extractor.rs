@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::core::thumbnail::{IconFormat, detect_icon_format, process_raster, process_svg};
+use crate::desktop::thumbnail::{IconFormat, detect_icon_format, process_raster, process_svg};
 
 use super::cache::{ExeCacheKey, is_cache_hit, write_cache_key};
 use super::error::ExeThumbError;
@@ -143,6 +143,7 @@ fn map_io(path: &Path) -> impl FnOnce(std::io::Error) -> ExeThumbError + '_ {
 #[cfg(test)]
 mod tests {
     use super::generate_exe_thumbnail;
+    use crate::exe::error::ExeThumbError;
     use crate::exe::telemetry::{FallbackReason, reset, snapshot};
     use tempfile::TempDir;
 
@@ -186,5 +187,36 @@ mod tests {
                 .fallback_reasons
                 .contains_key(&FallbackReason::NoIconAvailable)
         );
+    }
+
+    #[test]
+    fn rejects_executables_over_resource_limit() {
+        let tmp = TempDir::new();
+        assert!(tmp.is_ok());
+        let Ok(tmp) = tmp else {
+            panic!("tempdir should be created");
+        };
+
+        let input = tmp.path().join("large.exe");
+        let output = tmp.path().join("thumb.png");
+
+        let open_result = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&input);
+        assert!(open_result.is_ok());
+        let Ok(file) = open_result else {
+            panic!("test executable should be creatable");
+        };
+
+        let set_len_result = file.set_len(super::MAX_EXE_BYTES + 1);
+        assert!(set_len_result.is_ok());
+
+        let result = generate_exe_thumbnail(&input, &output, 64);
+        assert!(matches!(
+            result,
+            Err(ExeThumbError::ResourceLimitExceeded { .. })
+        ));
     }
 }
