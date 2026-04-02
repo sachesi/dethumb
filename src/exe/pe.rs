@@ -79,7 +79,7 @@ pub fn validate_executable_header(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_executable_header;
+    use super::{MAX_SECTION_COUNT, validate_executable_header};
     use std::io::{Seek, SeekFrom, Write};
     use tempfile::NamedTempFile;
 
@@ -142,5 +142,70 @@ mod tests {
         assert!(temp.as_file_mut().seek(SeekFrom::Start(0)).is_ok());
         let valid = validate_executable_header(temp.as_file_mut(), metadata.len());
         assert!(matches!(valid, Ok(false)));
+    }
+
+    #[test]
+    fn rejects_zero_section_count() {
+        let mut temp = write_minimal_valid_pe();
+        assert!(temp.as_file_mut().seek(SeekFrom::Start(0x86)).is_ok());
+        assert!(temp.as_file_mut().write_all(&0_u16.to_le_bytes()).is_ok());
+
+        let metadata = temp.path().metadata();
+        assert!(metadata.is_ok());
+        let Ok(metadata) = metadata else {
+            panic!("metadata should be available");
+        };
+
+        assert!(temp.as_file_mut().seek(SeekFrom::Start(0)).is_ok());
+        let valid = validate_executable_header(temp.as_file_mut(), metadata.len());
+        assert!(matches!(valid, Ok(false)));
+    }
+
+    #[test]
+    fn rejects_section_count_over_limit() {
+        let mut temp = write_minimal_valid_pe();
+        assert!(temp.as_file_mut().seek(SeekFrom::Start(0x86)).is_ok());
+        assert!(
+            temp.as_file_mut()
+                .write_all(&(MAX_SECTION_COUNT + 1).to_le_bytes())
+                .is_ok()
+        );
+
+        let metadata = temp.path().metadata();
+        assert!(metadata.is_ok());
+        let Ok(metadata) = metadata else {
+            panic!("metadata should be available");
+        };
+
+        assert!(temp.as_file_mut().seek(SeekFrom::Start(0)).is_ok());
+        let valid = validate_executable_header(temp.as_file_mut(), metadata.len());
+        assert!(matches!(valid, Ok(false)));
+    }
+
+    #[test]
+    fn malformed_header_fuzz_corpus_does_not_validate() {
+        for seed in 0_u8..=255 {
+            let temp = NamedTempFile::new();
+            assert!(temp.is_ok());
+            let Ok(mut temp) = temp else {
+                panic!("temporary file should be created");
+            };
+
+            let mut bytes = vec![0_u8; 128];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                *byte = seed
+                    .wrapping_mul(37)
+                    .wrapping_add((index as u8).wrapping_mul(17));
+            }
+
+            assert!(temp.write_all(&bytes).is_ok());
+            assert!(temp.seek(SeekFrom::Start(0)).is_ok());
+
+            let result = validate_executable_header(temp.as_file_mut(), bytes.len() as u64);
+            assert!(
+                matches!(result, Ok(false)),
+                "seed {seed} unexpectedly validated as PE"
+            );
+        }
     }
 }
