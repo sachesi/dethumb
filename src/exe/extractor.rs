@@ -177,20 +177,16 @@ fn ensure_thumbnailable_pe_extension(path: &Path, debug: bool) -> Result<(), Exe
         return Ok(());
     }
 
-    if extension != SUPPORTED_EXE_EXTENSION {
-        if debug {
-            eprintln!(
-                "skipping PE thumbnail: unsupported extension .{}",
-                extension
-            );
-        }
-        return Err(ExeThumbError::NonThumbnailableExtension {
-            path: path.to_path_buf(),
-            extension,
-        });
+    if debug {
+        eprintln!(
+            "skipping PE thumbnail: unsupported extension .{}",
+            extension
+        );
     }
-
-    Ok(())
+    Err(ExeThumbError::NonThumbnailableExtension {
+        path: path.to_path_buf(),
+        extension,
+    })
 }
 
 fn ensure_readable(path: &Path) -> Result<(), ExeThumbError> {

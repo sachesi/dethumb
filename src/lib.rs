@@ -215,7 +215,6 @@ fn is_non_thumbnailable(error: &AppError) -> bool {
     matches!(
         error,
         AppError::ExeThumbnail(ExeThumbError::NonThumbnailableExtension { .. })
-            | AppError::UnsupportedInputType(_)
     )
 }
 
