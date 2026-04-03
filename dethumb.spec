@@ -2,7 +2,7 @@
 %define debug_package %{nil}
 
 Name:           dethumb
-Version:        0.2.10
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
@@ -42,6 +42,11 @@ install -Dm0644 dethumb.thumbnailer \
 :
 
 %changelog
+* Fri Apr 03 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.0-1
+- Refactor and harden EXE PE-resource icon extraction paths
+- Improve malformed resource handling and PNG scanning robustness
+- Add focused regression tests for icon group parsing and candidate selection
+
 * Thu Apr 02 2026 sachesi <sachesi.bb.passp@proton.me> - 0.2.10-1
 - Refactor architecture around library entrypoints and core module boundaries
 - Harden icon/path validation and error handling for safer runtime behavior
