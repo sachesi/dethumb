@@ -637,8 +637,9 @@ fn find_ico_blob(bytes: &[u8]) -> Option<&[u8]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_ico_blob, find_png_blobs};
+    use super::{build_ico_from_group, decode_icon_blob, find_ico_blob, find_png_blobs};
     use image::{ImageBuffer, Rgba};
+    use std::collections::BTreeMap;
 
     #[test]
     fn finds_embedded_ico_blob() {
@@ -700,5 +701,68 @@ mod tests {
         let blobs = find_png_blobs(&payload);
         assert_eq!(blobs.len(), 1);
         assert_eq!(blobs[0], png_bytes.as_slice());
+    }
+
+    #[test]
+    fn rebuilds_single_entry_group_icon_from_twenty_byte_header() {
+        let icon_payload = vec![1_u8, 2, 3, 4];
+        let mut icons = BTreeMap::new();
+        icons.insert(1_u16, icon_payload.clone());
+
+        // GRPICONDIR (6) + 1x GRPICONDIRENTRY (14) = 20 bytes
+        let mut group = Vec::new();
+        group.extend_from_slice(&0_u16.to_le_bytes()); // reserved
+        group.extend_from_slice(&1_u16.to_le_bytes()); // type icon
+        group.extend_from_slice(&1_u16.to_le_bytes()); // count
+        group.push(16); // width
+        group.push(16); // height
+        group.push(0); // color count
+        group.push(0); // reserved
+        group.extend_from_slice(&1_u16.to_le_bytes()); // planes
+        group.extend_from_slice(&32_u16.to_le_bytes()); // bit count
+        group.extend_from_slice(&(u32::try_from(icon_payload.len()).unwrap_or(0)).to_le_bytes());
+        group.extend_from_slice(&1_u16.to_le_bytes()); // nID
+        assert_eq!(group.len(), 20);
+
+        let rebuilt = build_ico_from_group(&group, &icons);
+        assert!(rebuilt.is_some());
+        let rebuilt = rebuilt.unwrap_or_default();
+
+        assert_eq!(&rebuilt[0..2], &0_u16.to_le_bytes());
+        assert_eq!(&rebuilt[2..4], &1_u16.to_le_bytes());
+        assert_eq!(&rebuilt[4..6], &1_u16.to_le_bytes());
+        assert_eq!(&rebuilt[22..26], &icon_payload);
+    }
+
+    #[test]
+    fn decodes_png_backed_single_entry_group_icon() {
+        let image = ImageBuffer::from_pixel(2, 2, Rgba([255_u8, 0, 0, 255]));
+        let mut png_bytes = Vec::new();
+        let encoded = image::DynamicImage::ImageRgba8(image).write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        );
+        assert!(encoded.is_ok());
+
+        let mut icons = BTreeMap::new();
+        icons.insert(1_u16, png_bytes.clone());
+
+        let mut group = Vec::new();
+        group.extend_from_slice(&0_u16.to_le_bytes());
+        group.extend_from_slice(&1_u16.to_le_bytes());
+        group.extend_from_slice(&1_u16.to_le_bytes());
+        group.push(2);
+        group.push(2);
+        group.push(0);
+        group.push(0);
+        group.extend_from_slice(&1_u16.to_le_bytes());
+        group.extend_from_slice(&32_u16.to_le_bytes());
+        group.extend_from_slice(&(u32::try_from(png_bytes.len()).unwrap_or(0)).to_le_bytes());
+        group.extend_from_slice(&1_u16.to_le_bytes());
+
+        let rebuilt = build_ico_from_group(&group, &icons);
+        assert!(rebuilt.is_some());
+        let decoded = decode_icon_blob(&rebuilt.unwrap_or_default());
+        assert!(decoded.is_some());
     }
 }
