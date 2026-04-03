@@ -59,7 +59,12 @@ impl ExeIconExtractor for FallbackExeIconExtractor {
     }
 }
 
-pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbError> {
+pub fn generate_exe_thumbnail(
+    path: &Path,
+    out: &Path,
+    size: u32,
+    debug: bool,
+) -> Result<(), ExeThumbError> {
     if size == 0 {
         return Err(ExeThumbError::ResourceLimitExceeded {
             path: path.to_path_buf(),
@@ -71,10 +76,21 @@ pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), 
     let cache_key = ExeCacheKey::compute(path, size, BACKEND_CHAIN_MARKER).map_err(map_io(path))?;
 
     if is_cache_hit(out, &cache_key) {
+        if debug {
+            eprintln!("[debug] cache hit: {}", out.display());
+        }
         record_cache_hit();
         return Ok(());
     }
 
+    if debug {
+        eprintln!(
+            "[debug] cache miss; extracting '{}' to '{}' at size {}",
+            path.display(),
+            out.display(),
+            size
+        );
+    }
     record_cache_miss();
     record_extraction_attempt();
 
@@ -89,14 +105,30 @@ pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), 
     };
 
     for extractor in extractors {
+        if debug {
+            eprintln!("[debug] trying backend={}", extractor.backend_name());
+        }
         match extractor.extract_best_icon(path, out, size) {
             Ok(()) => {
+                if debug {
+                    eprintln!("[debug] backend={} succeeded", extractor.backend_name());
+                }
                 record_extraction_success();
                 return write_cache_key(out, &cache_key).map_err(map_io(path));
             }
             Err(err) => {
+                if debug {
+                    eprintln!(
+                        "[debug] backend={} failed: {}",
+                        extractor.backend_name(),
+                        err
+                    );
+                }
                 record_fallback_reason(reason_for_error(&err));
                 if !is_retryable_backend_error(&err) {
+                    if debug {
+                        eprintln!("[debug] non-retryable error, stopping");
+                    }
                     return Err(err);
                 }
                 last_error = err;
@@ -206,7 +238,7 @@ mod tests {
         let output = tmp.path().join("thumb.png");
         assert!(std::fs::write(&input, b"MZ").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 0);
+        let result = generate_exe_thumbnail(&input, &output, 0, false);
         assert!(result.is_err());
     }
 
@@ -224,7 +256,7 @@ mod tests {
         let output = tmp.path().join("thumb.png");
         assert!(std::fs::write(&input, b"NOPE").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(result.is_err());
 
         let snapshot = snapshot();
@@ -254,7 +286,7 @@ mod tests {
         bytes[0x3c..0x40].copy_from_slice(&invalid_offset.to_le_bytes());
         assert!(std::fs::write(&input, bytes).is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
     }
 
@@ -278,7 +310,7 @@ mod tests {
         assert!(file.seek(SeekFrom::Start(0x80)).is_ok());
         assert!(file.write_all(b"PX\0\0").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
     }
 
@@ -306,7 +338,7 @@ mod tests {
         let set_len_result = file.set_len(super::MAX_EXE_BYTES + 1);
         assert!(set_len_result.is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(
             result,
             Err(ExeThumbError::ResourceLimitExceeded { .. })

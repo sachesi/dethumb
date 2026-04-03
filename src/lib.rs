@@ -25,15 +25,27 @@ pub struct CliArgs {
     input_path: PathBuf,
     output_path: PathBuf,
     size: u32,
+    debug: bool,
 }
 
 impl CliArgs {
     #[must_use]
     pub fn new(input_path: PathBuf, output_path: PathBuf, size: u32) -> Self {
+        Self::new_with_debug(input_path, output_path, size, false)
+    }
+
+    #[must_use]
+    pub fn new_with_debug(
+        input_path: PathBuf,
+        output_path: PathBuf,
+        size: u32,
+        debug: bool,
+    ) -> Self {
         Self {
             input_path,
             output_path,
             size: if size == 0 { DEFAULT_SIZE } else { size },
+            debug,
         }
     }
 
@@ -43,28 +55,43 @@ impl CliArgs {
     }
 
     pub fn parse_from_slice(args: &[String]) -> Result<Self, AppError> {
-        if args.len() != 4 {
-            return Err(AppError::Usage(format!(
-                "Usage: {} <input.desktop|input.exe> <out.png> <size>",
-                args[0]
-            )));
-        }
+        let (debug, input_arg, output_arg, size_arg) = match args {
+            [prog, flag, input, output, size] if flag == "--debug" => {
+                let _ = prog;
+                (true, input, output, size)
+            }
+            [prog, input, output, size] => {
+                let _ = prog;
+                (false, input, output, size)
+            }
+            _ => {
+                return Err(AppError::Usage(format!(
+                    "Usage: {} [--debug] <input.desktop|input.exe> <out.png> <size>",
+                    args[0]
+                )));
+            }
+        };
 
-        let input_path = PathBuf::from(&args[1]);
-        let output_path = PathBuf::from(&args[2]);
+        let input_path = PathBuf::from(input_arg);
+        let output_path = PathBuf::from(output_arg);
 
         if has_parent_dir_component(&output_path) {
             return Err(AppError::UnsafeOutputPath(output_path));
         }
 
-        let parsed_size = args[3]
+        let parsed_size = size_arg
             .parse::<u32>()
             .map_err(|source| AppError::InvalidSize {
-                value: args[3].clone(),
+                value: size_arg.clone(),
                 source,
             })?;
 
-        Ok(Self::new(input_path, output_path, parsed_size))
+        Ok(Self::new_with_debug(
+            input_path,
+            output_path,
+            parsed_size,
+            debug,
+        ))
     }
 
     #[must_use]
@@ -75,6 +102,11 @@ impl CliArgs {
     #[must_use]
     pub fn size(&self) -> u32 {
         self.size
+    }
+
+    #[must_use]
+    pub fn debug(&self) -> bool {
+        self.debug
     }
 }
 
@@ -124,8 +156,10 @@ pub fn run_with_args(args: &CliArgs) -> Result<(), AppError> {
 
     match detect_input_kind(&input_path) {
         InputKind::DesktopEntry => process_desktop_entry(&input_path, &args.output_path, args.size),
-        InputKind::Executable => generate_exe_thumbnail(&input_path, &args.output_path, args.size)
-            .map_err(AppError::from),
+        InputKind::Executable => {
+            generate_exe_thumbnail(&input_path, &args.output_path, args.size, args.debug)
+                .map_err(AppError::from)
+        }
         InputKind::Unsupported => Err(AppError::UnsupportedInputType(
             input_path.display().to_string(),
         )),
@@ -191,6 +225,24 @@ mod tests {
         assert!(parsed.is_ok());
         if let Ok(parsed) = parsed {
             assert_eq!(parsed.size(), 256);
+            assert!(!parsed.debug());
+        }
+    }
+
+    #[test]
+    fn parses_debug_flag() {
+        let argv = vec![
+            "dethumb".to_string(),
+            "--debug".to_string(),
+            "in.exe".to_string(),
+            "out.png".to_string(),
+            "256".to_string(),
+        ];
+
+        let parsed = CliArgs::parse_from_slice(&argv);
+        assert!(parsed.is_ok());
+        if let Ok(parsed) = parsed {
+            assert!(parsed.debug());
         }
     }
 }
