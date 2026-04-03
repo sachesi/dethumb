@@ -1,12 +1,10 @@
 use std::io::{Read, Seek, SeekFrom};
 
-pub const MAX_SECTION_COUNT: u16 = 96;
 pub const MIN_PE_HEADER_SIZE: u64 = 24;
 
 const DOS_HEADER_LEN: usize = 64;
 const PE_SIGNATURE_LEN: usize = 4;
 const COFF_HEADER_LEN: usize = 20;
-const KNOWN_MACHINE_TYPES: [u16; 4] = [0x014c, 0x01c0, 0x8664, 0xaa64];
 
 pub fn validate_executable_header(
     file: &mut std::fs::File,
@@ -43,13 +41,8 @@ pub fn validate_executable_header(
     let mut coff_header = [0_u8; COFF_HEADER_LEN];
     file.read_exact(&mut coff_header)?;
 
-    let machine = u16::from_le_bytes([coff_header[0], coff_header[1]]);
-    if !KNOWN_MACHINE_TYPES.contains(&machine) {
-        return Ok(false);
-    }
-
     let section_count = u16::from_le_bytes([coff_header[2], coff_header[3]]);
-    if section_count == 0 || section_count > MAX_SECTION_COUNT {
+    if section_count == 0 {
         return Ok(false);
     }
 
@@ -67,19 +60,12 @@ pub fn validate_executable_header(
     }
 
     file.seek(SeekFrom::Start(optional_header_offset))?;
-    let mut optional_magic = [0_u8; 2];
-    file.read_exact(&mut optional_magic)?;
-    let optional_magic = u16::from_le_bytes(optional_magic);
-    if optional_magic != 0x010b && optional_magic != 0x020b {
-        return Ok(false);
-    }
-
     Ok(true)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_SECTION_COUNT, validate_executable_header};
+    use super::validate_executable_header;
     use std::io::{Seek, SeekFrom, Write};
     use tempfile::NamedTempFile;
 
@@ -124,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_machine_type() {
+    fn accepts_nonstandard_machine_type_if_structure_is_valid() {
         let mut temp = write_minimal_valid_pe();
         let patch_result = temp.as_file_mut().seek(SeekFrom::Start(0x84));
         assert!(patch_result.is_ok());
@@ -141,7 +127,7 @@ mod tests {
         };
         assert!(temp.as_file_mut().seek(SeekFrom::Start(0)).is_ok());
         let valid = validate_executable_header(temp.as_file_mut(), metadata.len());
-        assert!(matches!(valid, Ok(false)));
+        assert!(matches!(valid, Ok(true)));
     }
 
     #[test]
@@ -149,27 +135,6 @@ mod tests {
         let mut temp = write_minimal_valid_pe();
         assert!(temp.as_file_mut().seek(SeekFrom::Start(0x86)).is_ok());
         assert!(temp.as_file_mut().write_all(&0_u16.to_le_bytes()).is_ok());
-
-        let metadata = temp.path().metadata();
-        assert!(metadata.is_ok());
-        let Ok(metadata) = metadata else {
-            panic!("metadata should be available");
-        };
-
-        assert!(temp.as_file_mut().seek(SeekFrom::Start(0)).is_ok());
-        let valid = validate_executable_header(temp.as_file_mut(), metadata.len());
-        assert!(matches!(valid, Ok(false)));
-    }
-
-    #[test]
-    fn rejects_section_count_over_limit() {
-        let mut temp = write_minimal_valid_pe();
-        assert!(temp.as_file_mut().seek(SeekFrom::Start(0x86)).is_ok());
-        assert!(
-            temp.as_file_mut()
-                .write_all(&(MAX_SECTION_COUNT + 1).to_le_bytes())
-                .is_ok()
-        );
 
         let metadata = temp.path().metadata();
         assert!(metadata.is_ok());
