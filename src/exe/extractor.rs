@@ -20,6 +20,7 @@ const EXE_FALLBACK_ICON_NAMES: &[&str] = &[
 const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource-v2|freedesktop-fallback";
 const FALLBACK_BACKEND_NAME: &str = "freedesktop-fallback";
 const MAX_EXE_BYTES: u64 = 512 * 1024 * 1024;
+const SUPPORTED_EXE_EXTENSION: &str = "exe";
 
 pub trait ExeIconExtractor {
     fn extract_best_icon(&self, path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbError>;
@@ -71,6 +72,7 @@ pub fn generate_exe_thumbnail(
         });
     }
 
+    ensure_thumbnailable_pe_extension(path, debug)?;
     validate_pe_header(path)?;
 
     let cache_key = ExeCacheKey::compute(path, size, BACKEND_CHAIN_MARKER).map_err(map_io(path))?;
@@ -158,6 +160,39 @@ fn validate_pe_header(path: &Path) -> Result<(), ExeThumbError> {
     Ok(())
 }
 
+fn ensure_thumbnailable_pe_extension(path: &Path, debug: bool) -> Result<(), ExeThumbError> {
+    let extension = path
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+
+    let Some(extension) = extension else {
+        return Err(ExeThumbError::NonThumbnailableExtension {
+            path: path.to_path_buf(),
+            extension: String::new(),
+        });
+    };
+
+    if extension == SUPPORTED_EXE_EXTENSION {
+        return Ok(());
+    }
+
+    if extension != SUPPORTED_EXE_EXTENSION {
+        if debug {
+            eprintln!(
+                "skipping PE thumbnail: unsupported extension .{}",
+                extension
+            );
+        }
+        return Err(ExeThumbError::NonThumbnailableExtension {
+            path: path.to_path_buf(),
+            extension,
+        });
+    }
+
+    Ok(())
+}
+
 fn ensure_readable(path: &Path) -> Result<(), ExeThumbError> {
     std::fs::metadata(path).map_err(map_io(path))?;
     Ok(())
@@ -171,6 +206,7 @@ fn reason_for_error(error: &ExeThumbError) -> FallbackReason {
         ExeThumbError::InvalidPeFormat { .. } => FallbackReason::InvalidPeFormat,
         ExeThumbError::PermissionDenied { .. } => FallbackReason::PermissionDenied,
         ExeThumbError::Io { .. } => FallbackReason::Io,
+        ExeThumbError::NonThumbnailableExtension { .. } => FallbackReason::Other,
         _ => FallbackReason::Other,
     }
 }
@@ -288,6 +324,30 @@ mod tests {
 
         let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
+    }
+
+    #[test]
+    fn skips_non_exe_pe_extensions_before_extraction() {
+        reset();
+
+        let tmp = TempDir::new();
+        assert!(tmp.is_ok());
+        let Ok(tmp) = tmp else {
+            panic!("tempdir should be created");
+        };
+
+        let input = tmp.path().join("library.dll");
+        let output = tmp.path().join("thumb.png");
+        write_minimal_pe(&input);
+
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
+        assert!(matches!(
+            result,
+            Err(ExeThumbError::NonThumbnailableExtension { .. })
+        ));
+
+        let snapshot = snapshot();
+        assert_eq!(snapshot.extraction_attempts, 0);
     }
 
     #[test]
