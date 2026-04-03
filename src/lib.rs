@@ -198,6 +198,9 @@ pub fn run_with_fallback() -> i32 {
     match run() {
         Ok(()) => 0,
         Err(err) => {
+            if is_non_thumbnailable(&err) {
+                return 0;
+            }
             eprintln!("{err}");
             match CliArgs::parse_from_env() {
                 Ok(args) => create_fallback_thumbnail(args.output_path(), args.size()),
@@ -206,6 +209,14 @@ pub fn run_with_fallback() -> i32 {
             1
         }
     }
+}
+
+fn is_non_thumbnailable(error: &AppError) -> bool {
+    matches!(
+        error,
+        AppError::ExeThumbnail(ExeThumbError::NonThumbnailableExtension { .. })
+            | AppError::UnsupportedInputType(_)
+    )
 }
 
 #[cfg(test)]

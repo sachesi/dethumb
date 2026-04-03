@@ -6,6 +6,8 @@ use crate::desktop::thumbnail::ThumbnailError;
 
 #[derive(Debug, Error)]
 pub enum ExeThumbError {
+    #[error("Skipping PE thumbnail for unsupported extension '.{extension}' in '{path}'")]
+    NonThumbnailableExtension { path: PathBuf, extension: String },
     #[error("Unsupported platform for .exe extraction")]
     UnsupportedPlatform,
     #[error("Invalid PE format for '{path}'")]
