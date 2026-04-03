@@ -7,6 +7,8 @@ pub enum InputKind {
     Unsupported,
 }
 
+const PE_CANDIDATE_EXTENSIONS: &[&str] = &["exe", "dll", "ocx", "cpl", "drv", "mui"];
+
 #[must_use]
 pub fn detect_input_kind(path: &Path) -> InputKind {
     match path
@@ -16,7 +18,7 @@ pub fn detect_input_kind(path: &Path) -> InputKind {
         .as_deref()
     {
         Some("desktop") => InputKind::DesktopEntry,
-        Some("exe") => InputKind::Executable,
+        Some(ext) if PE_CANDIDATE_EXTENSIONS.contains(&ext) => InputKind::Executable,
         _ => InputKind::Unsupported,
     }
 }
@@ -34,6 +36,10 @@ mod tests {
         );
         assert_eq!(
             detect_input_kind(Path::new("APP.EXE")),
+            InputKind::Executable
+        );
+        assert_eq!(
+            detect_input_kind(Path::new("library.DLL")),
             InputKind::Executable
         );
         assert_eq!(

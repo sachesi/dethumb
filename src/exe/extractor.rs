@@ -17,9 +17,10 @@ const EXE_FALLBACK_ICON_NAMES: &[&str] = &[
     "application-x-executable",
     "application-x-generic",
 ];
-const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource|freedesktop-fallback";
+const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource-v2|freedesktop-fallback";
 const FALLBACK_BACKEND_NAME: &str = "freedesktop-fallback";
 const MAX_EXE_BYTES: u64 = 512 * 1024 * 1024;
+const SUPPORTED_EXE_EXTENSION: &str = "exe";
 
 pub trait ExeIconExtractor {
     fn extract_best_icon(&self, path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbError>;
@@ -59,22 +60,39 @@ impl ExeIconExtractor for FallbackExeIconExtractor {
     }
 }
 
-pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbError> {
+pub fn generate_exe_thumbnail(
+    path: &Path,
+    out: &Path,
+    size: u32,
+    debug: bool,
+) -> Result<(), ExeThumbError> {
     if size == 0 {
         return Err(ExeThumbError::ResourceLimitExceeded {
             path: path.to_path_buf(),
         });
     }
 
+    ensure_thumbnailable_pe_extension(path, debug)?;
     validate_pe_header(path)?;
 
     let cache_key = ExeCacheKey::compute(path, size, BACKEND_CHAIN_MARKER).map_err(map_io(path))?;
 
     if is_cache_hit(out, &cache_key) {
+        if debug {
+            eprintln!("[debug] cache hit: {}", out.display());
+        }
         record_cache_hit();
         return Ok(());
     }
 
+    if debug {
+        eprintln!(
+            "[debug] cache miss; extracting '{}' to '{}' at size {}",
+            path.display(),
+            out.display(),
+            size
+        );
+    }
     record_cache_miss();
     record_extraction_attempt();
 
@@ -89,14 +107,30 @@ pub fn generate_exe_thumbnail(path: &Path, out: &Path, size: u32) -> Result<(), 
     };
 
     for extractor in extractors {
+        if debug {
+            eprintln!("[debug] trying backend={}", extractor.backend_name());
+        }
         match extractor.extract_best_icon(path, out, size) {
             Ok(()) => {
+                if debug {
+                    eprintln!("[debug] backend={} succeeded", extractor.backend_name());
+                }
                 record_extraction_success();
                 return write_cache_key(out, &cache_key).map_err(map_io(path));
             }
             Err(err) => {
+                if debug {
+                    eprintln!(
+                        "[debug] backend={} failed: {}",
+                        extractor.backend_name(),
+                        err
+                    );
+                }
                 record_fallback_reason(reason_for_error(&err));
                 if !is_retryable_backend_error(&err) {
+                    if debug {
+                        eprintln!("[debug] non-retryable error, stopping");
+                    }
                     return Err(err);
                 }
                 last_error = err;
@@ -126,6 +160,35 @@ fn validate_pe_header(path: &Path) -> Result<(), ExeThumbError> {
     Ok(())
 }
 
+fn ensure_thumbnailable_pe_extension(path: &Path, debug: bool) -> Result<(), ExeThumbError> {
+    let extension = path
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+        .map(str::to_ascii_lowercase);
+
+    let Some(extension) = extension else {
+        return Err(ExeThumbError::NonThumbnailableExtension {
+            path: path.to_path_buf(),
+            extension: String::new(),
+        });
+    };
+
+    if extension == SUPPORTED_EXE_EXTENSION {
+        return Ok(());
+    }
+
+    if debug {
+        eprintln!(
+            "skipping PE thumbnail: unsupported extension .{}",
+            extension
+        );
+    }
+    Err(ExeThumbError::NonThumbnailableExtension {
+        path: path.to_path_buf(),
+        extension,
+    })
+}
+
 fn ensure_readable(path: &Path) -> Result<(), ExeThumbError> {
     std::fs::metadata(path).map_err(map_io(path))?;
     Ok(())
@@ -139,6 +202,7 @@ fn reason_for_error(error: &ExeThumbError) -> FallbackReason {
         ExeThumbError::InvalidPeFormat { .. } => FallbackReason::InvalidPeFormat,
         ExeThumbError::PermissionDenied { .. } => FallbackReason::PermissionDenied,
         ExeThumbError::Io { .. } => FallbackReason::Io,
+        ExeThumbError::NonThumbnailableExtension { .. } => FallbackReason::Other,
         _ => FallbackReason::Other,
     }
 }
@@ -206,7 +270,7 @@ mod tests {
         let output = tmp.path().join("thumb.png");
         assert!(std::fs::write(&input, b"MZ").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 0);
+        let result = generate_exe_thumbnail(&input, &output, 0, false);
         assert!(result.is_err());
     }
 
@@ -224,7 +288,7 @@ mod tests {
         let output = tmp.path().join("thumb.png");
         assert!(std::fs::write(&input, b"NOPE").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(result.is_err());
 
         let snapshot = snapshot();
@@ -254,8 +318,32 @@ mod tests {
         bytes[0x3c..0x40].copy_from_slice(&invalid_offset.to_le_bytes());
         assert!(std::fs::write(&input, bytes).is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
+    }
+
+    #[test]
+    fn skips_non_exe_pe_extensions_before_extraction() {
+        reset();
+
+        let tmp = TempDir::new();
+        assert!(tmp.is_ok());
+        let Ok(tmp) = tmp else {
+            panic!("tempdir should be created");
+        };
+
+        let input = tmp.path().join("library.dll");
+        let output = tmp.path().join("thumb.png");
+        write_minimal_pe(&input);
+
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
+        assert!(matches!(
+            result,
+            Err(ExeThumbError::NonThumbnailableExtension { .. })
+        ));
+
+        let snapshot = snapshot();
+        assert_eq!(snapshot.extraction_attempts, 0);
     }
 
     #[test]
@@ -278,7 +366,7 @@ mod tests {
         assert!(file.seek(SeekFrom::Start(0x80)).is_ok());
         assert!(file.write_all(b"PX\0\0").is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(result, Err(ExeThumbError::InvalidPeFormat { .. })));
     }
 
@@ -306,7 +394,7 @@ mod tests {
         let set_len_result = file.set_len(super::MAX_EXE_BYTES + 1);
         assert!(set_len_result.is_ok());
 
-        let result = generate_exe_thumbnail(&input, &output, 64);
+        let result = generate_exe_thumbnail(&input, &output, 64, false);
         assert!(matches!(
             result,
             Err(ExeThumbError::ResourceLimitExceeded { .. })
