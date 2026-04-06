@@ -1,20 +1,13 @@
 %define _debugsource_template %{nil}
 %define debug_package %{nil}
 
-# Default to source-archive builds (SRPM/local sources). For COPR SCM builds,
-# pass: --without local_sources
-%bcond_without local_sources
-
 Name:           dethumb
-Version:        0.3.2
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
 License:        GPL-3.0-or-later
 URL:            https://github.com/sachesi/dethumb
-%if %{with local_sources}
-Source0:        %{name}-%{version}.tar.gz
-%endif
 
 BuildRequires:  rust
 BuildRequires:  cargo
@@ -25,15 +18,10 @@ files and Windows .exe executables. Integrates with Nautilus and other
 GTK file managers via the freedesktop thumbnailer protocol.
 
 %prep
-%if %{with local_sources}
-%autosetup -n %{name}-%{version}
-%else
-# COPR SCM / build-in-place mode: sources are provided by the checkout.
-:
-%endif
+# Nothing to do — built in-place with --build-in-place
 
 %build
-cargo build --release --locked
+cargo build --release
 
 %install
 install -Dm0755 target/release/dethumb \
@@ -54,18 +42,6 @@ install -Dm0644 dethumb.thumbnailer \
 :
 
 %changelog
-* Mon Apr 06 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.2-1
-- Bump project/package version to 0.3.2
-
-* Mon Apr 06 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.1-1
-- Bump project/package version to 0.3.1
-- Keep COPR SCM make_srpm packaging support via .copr/Makefile
-
-* Sat Apr 04 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.0-1
-- Make spec COPR-friendly for both source-archive and SCM build-in-place workflows
-- Add local_sources build condition and Source0 for SRPM/local builds
-- Keep build-in-place fallback for COPR SCM builds without bundled sources
-
 * Fri Apr 03 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.0-1
 - Refactor and harden EXE PE-resource icon extraction paths
 - Improve malformed resource handling and PNG scanning robustness
