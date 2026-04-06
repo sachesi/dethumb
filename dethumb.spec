@@ -6,7 +6,7 @@
 %bcond_without local_sources
 
 Name:           dethumb
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Linux .desktop and Windows EXE thumbnailer
 
@@ -54,6 +54,9 @@ install -Dm0644 dethumb.thumbnailer \
 :
 
 %changelog
+* Mon Apr 06 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.2-1
+- Bump project/package version to 0.3.2
+
 * Mon Apr 06 2026 sachesi <sachesi.bb.passp@proton.me> - 0.3.1-1
 - Bump project/package version to 0.3.1
 - Keep COPR SCM make_srpm packaging support via .copr/Makefile
