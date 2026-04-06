@@ -3,7 +3,8 @@ SPEC ?= $(spec)
 
 NAME := $(shell awk '/^Name:[[:space:]]*/ {print $$2; exit}' $(SPEC))
 VERSION := $(shell awk '/^Version:[[:space:]]*/ {print $$2; exit}' $(SPEC))
-TARBALL := $(NAME)-$(VERSION).tar.gz
+SOURCE0 := $(shell awk '/^Source0:[[:space:]]*/ {print $$2; exit}' $(SPEC))
+TARBALL := $(shell printf '%s' '$(SOURCE0)' | sed -e 's/%{name}/$(NAME)/g' -e 's/%{version}/$(VERSION)/g')
 
 .PHONY: srpm clean
 
