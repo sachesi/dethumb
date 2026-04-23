@@ -1,3 +1,7 @@
 /target
 /rpmbuild
 *.list
+vendor/
+.cargo/
+*.tar.zst
+*.tar.gz
