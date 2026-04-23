@@ -40,7 +40,7 @@ cargo build --release --frozen --offline
 %install
 install -Dm0755 target/release/dethumb \
     %{buildroot}%{_bindir}/dethumb
-install -Dm0644 /packaging/usr/share/thumbnailers/dethumb.thumbnailer \
+install -Dm0644 packaging/usr/share/thumbnailers/dethumb.thumbnailer \
     %{buildroot}%{_datadir}/thumbnailers/dethumb.thumbnailer
 
 %files
