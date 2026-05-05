@@ -9,8 +9,6 @@ Summary:        Linux .desktop and Windows EXE thumbnailer
 License:        GPL-3.0-or-later
 URL:            https://github.com/sachesi/dethumb
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
-Source1:        %{name}-%{version}-vendor.tar.zst
-
 BuildRequires:  rust
 BuildRequires:  cargo
 BuildRequires:  gcc
@@ -22,20 +20,10 @@ GTK file managers via the freedesktop thumbnailer protocol.
 
 %prep
 %autosetup -n %{name}-%{version}
-tar -xaf %{SOURCE1}
-
-mkdir -p .cargo
-cat > .cargo/config.toml <<'EOF'
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
-EOF
 
 %build
 export CARGO_HOME=$PWD/.cargo-home
-cargo build --release --frozen --offline
+cargo build --release --locked
 
 %install
 install -Dm0755 target/release/dethumb \
