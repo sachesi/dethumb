@@ -1,15 +1,34 @@
 # dethumb
 
-A small Rust utility that generates thumbnails for Linux `.desktop` files and Windows `.exe` binaries.
+Generates PNG thumbnails for Linux `.desktop` files and Windows `.exe` binaries. Integrates with file managers via the freedesktop thumbnailer protocol (see `packaging/` for the `.thumbnailer` entry).
 
-Quick start
-- Build: `cargo build --release`
-- Run: execute the produced `dethumb` binary (it generates PNG thumbnails for `.desktop` and `.exe` inputs and is intended for integration with a desktop thumbnailer service).
+## Build and usage
 
-Notes
-- Minimal, focused on producing clear thumbnails for application launchers and executable files.
-- See `LICENSE` for license details (GPLv3).
+```
+cargo build --release
+```
 
-Release hygiene
-- Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `cargo audit` before every release.
-- Regularly update dependencies (`cargo update`) and re-run `cargo audit` to keep security advisories current.
+The `dethumb` binary expects four arguments:
+
+```
+dethumb <input> <output.png> <size>
+```
+
+An optional `--debug` flag enables verbose backend selection and cache diagnostics.
+
+Inputs are auto-detected by extension: `.desktop` files are rendered from their `Icon=` entry using the current desktop icon theme; `.exe` files have icons extracted from PE resources (see `docs/` for extraction details).
+
+## License
+
+GPL-3.0-or-later — see `LICENSE`.
+
+## Release checks
+
+```
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo audit
+```
+
+Run these before every release. Keep dependencies current (`cargo update`) and re-run `cargo audit` to catch new advisories.
