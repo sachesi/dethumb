@@ -12,8 +12,7 @@ wins.
 1. **Windows Shell** — calls `System.Drawing.Icon.ExtractAssociatedIcon`
    via PowerShell. Windows only.
 2. **PE resource parser** — pure Rust, reads `RT_GROUP_ICON` /
-   `RT_ICON` resources directly. Uses `pelite` as the primary parser
-   with a manual fallback for edge cases. Works everywhere.
+   `RT_ICON` resources directly via `pelite`. Works everywhere.
 3. **Freedesktop icon fallback** — looks up generic executable icons
    (`application-x-ms-dos-executable`, etc.) from the system icon theme.
 
