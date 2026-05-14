@@ -36,12 +36,14 @@ impl ExeCacheKey {
     }
 }
 
+#[must_use]
 pub fn sidecar_path(output_path: &Path) -> PathBuf {
     let mut as_text = output_path.as_os_str().to_os_string();
     as_text.push(".cachekey");
     PathBuf::from(as_text)
 }
 
+#[must_use]
 pub fn is_cache_hit(output_path: &Path, cache_key: &ExeCacheKey) -> bool {
     if !output_path.is_file() {
         return false;

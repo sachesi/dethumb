@@ -65,9 +65,9 @@ impl CliArgs {
                 (false, input, output, size)
             }
             _ => {
+                let prog = args.first().map_or("dethumb", String::as_str);
                 return Err(AppError::Usage(format!(
-                    "Usage: {} [--debug] <input.desktop|input.exe> <out.png> <size>",
-                    args[0]
+                    "Usage: {prog} [--debug] <input.desktop|input.exe> <out.png> <size>"
                 )));
             }
         };
@@ -195,17 +195,22 @@ fn render_icon(icon_path: &Path, output_path: &Path, size: u32) -> Result<(), Ap
 
 #[must_use]
 pub fn run_with_fallback() -> i32 {
-    match run() {
+    let args = match CliArgs::parse_from_env() {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("{err}");
+            return 1;
+        }
+    };
+
+    match run_with_args(&args) {
         Ok(()) => 0,
         Err(err) => {
             if is_non_thumbnailable(&err) {
                 return 0;
             }
             eprintln!("{err}");
-            match CliArgs::parse_from_env() {
-                Ok(args) => create_fallback_thumbnail(args.output_path(), args.size()),
-                Err(parse_err) => eprintln!("{parse_err}"),
-            }
+            create_fallback_thumbnail(args.output_path(), args.size());
             1
         }
     }

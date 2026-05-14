@@ -16,12 +16,12 @@ pub fn validate_executable_header(
         return Ok(false);
     }
 
-    let pe_header_offset = u32::from_le_bytes([
+    let pe_header_offset = u64::from(u32::from_le_bytes([
         dos_header[0x3c],
         dos_header[0x3d],
         dos_header[0x3e],
         dos_header[0x3f],
-    ]) as u64;
+    ]));
 
     if pe_header_offset < DOS_HEADER_LEN as u64
         || pe_header_offset
@@ -46,7 +46,7 @@ pub fn validate_executable_header(
         return Ok(false);
     }
 
-    let optional_header_size = u16::from_le_bytes([coff_header[16], coff_header[17]]) as u64;
+    let optional_header_size = u64::from(u16::from_le_bytes([coff_header[16], coff_header[17]]));
     if optional_header_size < 2 {
         return Ok(false);
     }

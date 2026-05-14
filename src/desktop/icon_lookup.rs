@@ -4,6 +4,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use freedesktop_icons::lookup;
 
@@ -15,22 +17,29 @@ const FALLBACK_THEMES: [&str; 2] = ["Adwaita", "Papirus"];
 /// Read the current desktop icon theme via `gsettings`.
 #[must_use]
 pub fn get_current_theme() -> Option<String> {
-    let output = Command::new("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "icon-theme"])
-        .output()
-        .ok()?;
+    let (tx, rx) = mpsc::channel();
+    let _ = std::thread::spawn(move || {
+        let Ok(output) = Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "icon-theme"])
+            .output()
+        else {
+            let _ = tx.send(None);
+            return;
+        };
+        if !output.status.success() {
+            let _ = tx.send(None);
+            return;
+        }
+        let theme = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .trim_matches('\'')
+            .trim()
+            .to_owned();
+        let result = if theme.is_empty() { None } else { Some(theme) };
+        let _ = tx.send(result);
+    });
 
-    if !output.status.success() {
-        return None;
-    }
-
-    let theme = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .trim_matches('\'')
-        .trim()
-        .to_owned();
-
-    if theme.is_empty() { None } else { Some(theme) }
+    rx.recv_timeout(Duration::from_secs(5)).ok()?
 }
 
 /// Resolve an icon to a concrete file path, handling absolute and themed icons.

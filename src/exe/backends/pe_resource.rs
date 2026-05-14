@@ -2,7 +2,6 @@ use std::path::Path;
 
 use image::imageops::FilterType;
 use pelite::PeFile;
-use pelite::resources::FindError;
 
 use crate::exe::error::ExeThumbError;
 use crate::exe::extractor::ExeIconExtractor;
@@ -12,17 +11,7 @@ const ICO_DIR_ENTRY_LEN: usize = 16;
 const MAX_ICON_DIR_ENTRIES: usize = 64;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 const PNG_IEND: &[u8; 4] = b"IEND";
-const PE_SIGNATURE_OFFSET: usize = 0x3c;
-const PE_FILE_HEADER_LEN: usize = 20;
-const PE_SECTION_HEADER_LEN: usize = 40;
-const PE_DATA_DIRECTORY_LEN: usize = 8;
-const PE_RESOURCE_DIRECTORY_INDEX: usize = 2;
-const RESOURCE_DIRECTORY_TABLE_LEN: usize = 16;
-const RESOURCE_DIRECTORY_ENTRY_LEN: usize = 8;
-const RESOURCE_DATA_ENTRY_LEN: usize = 16;
-const RT_ICON: u32 = 3;
-const RT_GROUP_ICON: u32 = 14;
-const MAX_GROUP_ICON_ENTRIES: usize = 256;
+
 
 pub struct PeResourceIconExtractor;
 
@@ -68,27 +57,8 @@ fn score_match(image: &image::DynamicImage, target_size: u32) -> u64 {
     u64::from(image.width()).abs_diff(target) + u64::from(image.height()).abs_diff(target)
 }
 
-#[derive(Clone, Copy)]
-struct SectionHeader {
-    virtual_address: u32,
-    virtual_size: u32,
-    raw_ptr: u32,
-    raw_size: u32,
-}
-
-#[derive(Clone)]
-struct GroupIconEntry {
-    width: u8,
-    height: u8,
-    color_count: u8,
-    reserved: u8,
-    planes: u16,
-    bit_count: u16,
-    icon_id: u16,
-}
-
 fn find_best_group_icon(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
-    find_best_group_icon_pelite(bytes, size).or_else(|| find_best_group_icon_manual(bytes, size))
+    find_best_group_icon_pelite(bytes, size)
 }
 
 fn find_best_group_icon_pelite(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
@@ -97,11 +67,7 @@ fn find_best_group_icon_pelite(bytes: &[u8], size: u32) -> Option<image::Dynamic
     let mut best: Option<(u64, image::DynamicImage)> = None;
 
     for icon_result in resources.icons() {
-        let (_name, group_icon) = match icon_result {
-            Ok(icon) => icon,
-            Err(FindError::NotFound) => continue,
-            Err(_) => continue,
-        };
+        let Ok((_name, group_icon)) = icon_result else { continue };
 
         let mut ico = Vec::new();
         if group_icon.write(&mut ico).is_err() {
@@ -118,368 +84,6 @@ fn find_best_group_icon_pelite(bytes: &[u8], size: u32) -> Option<image::Dynamic
     }
 
     best.map(|(_, decoded)| decoded)
-}
-
-fn find_best_group_icon_manual(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
-    let pe_offset = usize::try_from(read_u32_le(bytes, PE_SIGNATURE_OFFSET)?).ok()?;
-    if bytes.get(pe_offset..pe_offset + 4)? != b"PE\0\0" {
-        return None;
-    }
-
-    let coff_offset = pe_offset + 4;
-    let number_of_sections = usize::from(read_u16_le(bytes, coff_offset + 2)?);
-    let optional_header_size = usize::from(read_u16_le(bytes, coff_offset + 16)?);
-    let optional_header_offset = coff_offset + PE_FILE_HEADER_LEN;
-    let sections_offset = optional_header_offset + optional_header_size;
-
-    let section_headers = read_section_headers(bytes, sections_offset, number_of_sections)?;
-    let resource_directory = read_resource_directory(bytes, optional_header_offset)?;
-    let resource_root = rva_to_file_offset(resource_directory.0, &section_headers)?;
-
-    let icon_blobs =
-        collect_icon_resource_blobs(bytes, resource_root, resource_directory.1, &section_headers)?;
-    let groups =
-        collect_group_icon_blobs(bytes, resource_root, resource_directory.1, &section_headers)?;
-
-    let mut best: Option<(u64, image::DynamicImage)> = None;
-    for group_blob in groups {
-        let Some(ico_blob) = build_ico_from_group(&group_blob, &icon_blobs) else {
-            continue;
-        };
-        let Some(decoded) = decode_icon_blob(&ico_blob) else {
-            continue;
-        };
-
-        let score = score_match(&decoded, size);
-
-        if best.as_ref().is_none_or(|(current, _)| score < *current) {
-            best = Some((score, decoded));
-        }
-    }
-
-    best.map(|(_, image)| image)
-}
-
-fn read_resource_directory(bytes: &[u8], optional_header_offset: usize) -> Option<(u32, u32)> {
-    let magic = read_u16_le(bytes, optional_header_offset)?;
-    let data_directory_offset = if magic == 0x010b {
-        optional_header_offset + 96
-    } else if magic == 0x020b {
-        optional_header_offset + 112
-    } else {
-        return None;
-    };
-
-    let entry_offset =
-        data_directory_offset + (PE_RESOURCE_DIRECTORY_INDEX * PE_DATA_DIRECTORY_LEN);
-    let rva = read_u32_le(bytes, entry_offset)?;
-    let size = read_u32_le(bytes, entry_offset + 4)?;
-    if rva == 0 || size == 0 {
-        return None;
-    }
-
-    Some((rva, size))
-}
-
-fn read_section_headers(
-    bytes: &[u8],
-    mut offset: usize,
-    number_of_sections: usize,
-) -> Option<Vec<SectionHeader>> {
-    let mut sections = Vec::with_capacity(number_of_sections);
-    for _ in 0..number_of_sections {
-        if offset.checked_add(PE_SECTION_HEADER_LEN)? > bytes.len() {
-            return None;
-        }
-        let virtual_size = read_u32_le(bytes, offset + 8)?;
-        let virtual_address = read_u32_le(bytes, offset + 12)?;
-        let raw_size = read_u32_le(bytes, offset + 16)?;
-        let raw_ptr = read_u32_le(bytes, offset + 20)?;
-        sections.push(SectionHeader {
-            virtual_address,
-            virtual_size,
-            raw_ptr,
-            raw_size,
-        });
-        offset += PE_SECTION_HEADER_LEN;
-    }
-    Some(sections)
-}
-
-fn collect_icon_resource_blobs<'a>(
-    bytes: &'a [u8],
-    resource_root: usize,
-    resource_size: u32,
-    sections: &[SectionHeader],
-) -> Option<std::collections::BTreeMap<u16, &'a [u8]>> {
-    let mut icons = std::collections::BTreeMap::new();
-    for data in collect_resource_data_for_type(bytes, resource_root, resource_size, RT_ICON)? {
-        let icon_id = u16::try_from(data.id).ok()?;
-        let blob = read_resource_data_entry(bytes, data.data_offset, sections)?;
-        icons.insert(icon_id, blob);
-    }
-    Some(icons)
-}
-
-fn collect_group_icon_blobs<'a>(
-    bytes: &'a [u8],
-    resource_root: usize,
-    resource_size: u32,
-    sections: &[SectionHeader],
-) -> Option<Vec<&'a [u8]>> {
-    let mut groups = Vec::new();
-    for data in collect_resource_data_for_type(bytes, resource_root, resource_size, RT_GROUP_ICON)?
-    {
-        let blob = read_resource_data_entry(bytes, data.data_offset, sections)?;
-        groups.push(blob);
-    }
-    Some(groups)
-}
-
-#[derive(Clone, Copy)]
-struct ResourceLeaf {
-    id: u32,
-    data_offset: usize,
-}
-
-fn collect_resource_data_for_type(
-    bytes: &[u8],
-    root_offset: usize,
-    resource_size: u32,
-    target_type: u32,
-) -> Option<Vec<ResourceLeaf>> {
-    let type_entries = read_resource_entries(bytes, root_offset)?;
-    let type_entry = type_entries
-        .into_iter()
-        .find(|entry| !entry.name_is_string && entry.id == target_type)?;
-    let type_dir = resolve_resource_subdir(root_offset, type_entry.offset_to_data, resource_size)?;
-    let name_entries = read_resource_entries(bytes, type_dir)?;
-    let mut leaves = Vec::new();
-
-    for name_entry in name_entries {
-        collect_resource_leaves_from_entry(
-            bytes,
-            root_offset,
-            resource_size,
-            name_entry.id,
-            name_entry.offset_to_data,
-            0,
-            &mut leaves,
-        )?;
-    }
-
-    Some(leaves)
-}
-
-fn collect_resource_leaves_from_entry(
-    bytes: &[u8],
-    root_offset: usize,
-    resource_size: u32,
-    name_id: u32,
-    offset_to_data: u32,
-    depth: usize,
-    out: &mut Vec<ResourceLeaf>,
-) -> Option<()> {
-    if depth > 2 {
-        return Some(());
-    }
-
-    if (offset_to_data & 0x8000_0000) == 0 {
-        let data_offset = resolve_resource_data_entry(root_offset, offset_to_data, resource_size)?;
-        out.push(ResourceLeaf {
-            id: name_id,
-            data_offset,
-        });
-        return Some(());
-    }
-
-    let dir_offset = resolve_resource_subdir(root_offset, offset_to_data, resource_size)?;
-    let entries = read_resource_entries(bytes, dir_offset)?;
-    for entry in entries {
-        if (entry.offset_to_data & 0x8000_0000) == 0 {
-            let data_offset =
-                resolve_resource_data_entry(root_offset, entry.offset_to_data, resource_size)?;
-            out.push(ResourceLeaf {
-                id: name_id,
-                data_offset,
-            });
-        } else {
-            collect_resource_leaves_from_entry(
-                bytes,
-                root_offset,
-                resource_size,
-                name_id,
-                entry.offset_to_data,
-                depth + 1,
-                out,
-            )?;
-        }
-    }
-
-    Some(())
-}
-
-#[derive(Clone, Copy)]
-struct ResourceDirectoryEntry {
-    id: u32,
-    name_is_string: bool,
-    offset_to_data: u32,
-}
-
-fn read_resource_entries(bytes: &[u8], dir_offset: usize) -> Option<Vec<ResourceDirectoryEntry>> {
-    if dir_offset.checked_add(RESOURCE_DIRECTORY_TABLE_LEN)? > bytes.len() {
-        return None;
-    }
-    let named_count = usize::from(read_u16_le(bytes, dir_offset + 12)?);
-    let id_count = usize::from(read_u16_le(bytes, dir_offset + 14)?);
-    let count = named_count.checked_add(id_count)?;
-    let mut entries = Vec::with_capacity(count);
-    let mut offset = dir_offset + RESOURCE_DIRECTORY_TABLE_LEN;
-    for _ in 0..count {
-        if offset.checked_add(RESOURCE_DIRECTORY_ENTRY_LEN)? > bytes.len() {
-            return None;
-        }
-        let name_raw = read_u32_le(bytes, offset)?;
-        let data_raw = read_u32_le(bytes, offset + 4)?;
-        entries.push(ResourceDirectoryEntry {
-            id: name_raw & 0x7fff_ffff,
-            name_is_string: (name_raw & 0x8000_0000) != 0,
-            offset_to_data: data_raw,
-        });
-        offset += RESOURCE_DIRECTORY_ENTRY_LEN;
-    }
-    Some(entries)
-}
-
-fn resolve_resource_subdir(
-    root_offset: usize,
-    raw_offset: u32,
-    resource_size: u32,
-) -> Option<usize> {
-    if (raw_offset & 0x8000_0000) == 0 {
-        return None;
-    }
-    let relative = usize::try_from(raw_offset & 0x7fff_ffff).ok()?;
-    let absolute = root_offset.checked_add(relative)?;
-    let max = root_offset.checked_add(usize::try_from(resource_size).ok()?)?;
-    if absolute >= max {
-        return None;
-    }
-    Some(absolute)
-}
-
-fn resolve_resource_data_entry(
-    root_offset: usize,
-    raw_offset: u32,
-    resource_size: u32,
-) -> Option<usize> {
-    if (raw_offset & 0x8000_0000) != 0 {
-        return None;
-    }
-    let relative = usize::try_from(raw_offset).ok()?;
-    let absolute = root_offset.checked_add(relative)?;
-    let max = root_offset.checked_add(usize::try_from(resource_size).ok()?)?;
-    let end = absolute.checked_add(RESOURCE_DATA_ENTRY_LEN)?;
-    if end > max {
-        return None;
-    }
-    Some(absolute)
-}
-
-fn read_resource_data_entry<'a>(
-    bytes: &'a [u8],
-    data_entry_offset: usize,
-    sections: &[SectionHeader],
-) -> Option<&'a [u8]> {
-    let data_rva = read_u32_le(bytes, data_entry_offset)?;
-    let data_size = usize::try_from(read_u32_le(bytes, data_entry_offset + 4)?).ok()?;
-    let data_offset = rva_to_file_offset(data_rva, sections)?;
-    bytes.get(data_offset..data_offset.checked_add(data_size)?)
-}
-
-fn rva_to_file_offset(rva: u32, sections: &[SectionHeader]) -> Option<usize> {
-    for section in sections {
-        let size = section.virtual_size.max(section.raw_size);
-        let start = section.virtual_address;
-        let end = start.checked_add(size)?;
-        if (start..end).contains(&rva) {
-            let within = rva.checked_sub(start)?;
-            let file_offset = section.raw_ptr.checked_add(within)?;
-            return usize::try_from(file_offset).ok();
-        }
-    }
-    None
-}
-
-fn build_ico_from_group(
-    group_blob: &[u8],
-    icons_by_id: &std::collections::BTreeMap<u16, &[u8]>,
-) -> Option<Vec<u8>> {
-    if read_u16_le(group_blob, 0)? != 0 || read_u16_le(group_blob, 2)? != 1 {
-        return None;
-    }
-
-    let count = usize::from(read_u16_le(group_blob, 4)?);
-    if count == 0 || count > MAX_GROUP_ICON_ENTRIES {
-        return None;
-    }
-    let entries_size = count.checked_mul(14)?;
-    if 6_usize.checked_add(entries_size)? > group_blob.len() {
-        return None;
-    }
-
-    let mut entries = Vec::with_capacity(count);
-    for i in 0..count {
-        let offset = 6 + (i * 14);
-        entries.push(GroupIconEntry {
-            width: *group_blob.get(offset)?,
-            height: *group_blob.get(offset + 1)?,
-            color_count: *group_blob.get(offset + 2)?,
-            reserved: *group_blob.get(offset + 3)?,
-            planes: read_u16_le(group_blob, offset + 4)?,
-            bit_count: read_u16_le(group_blob, offset + 6)?,
-            icon_id: read_u16_le(group_blob, offset + 12)?,
-        });
-    }
-
-    let mut images = Vec::new();
-    for entry in &entries {
-        let icon = icons_by_id.get(&entry.icon_id)?;
-        images.push(*icon);
-    }
-
-    let mut output = Vec::new();
-    output.extend_from_slice(&0_u16.to_le_bytes());
-    output.extend_from_slice(&1_u16.to_le_bytes());
-    output.extend_from_slice(&(u16::try_from(count).ok()?).to_le_bytes());
-
-    let mut image_offset = 6 + (count * 16);
-    for (entry, image) in entries.iter().zip(&images) {
-        output.push(entry.width);
-        output.push(entry.height);
-        output.push(entry.color_count);
-        output.push(entry.reserved);
-        output.extend_from_slice(&entry.planes.to_le_bytes());
-        output.extend_from_slice(&entry.bit_count.to_le_bytes());
-        output.extend_from_slice(&(u32::try_from(image.len()).ok()?).to_le_bytes());
-        output.extend_from_slice(&(u32::try_from(image_offset).ok()?).to_le_bytes());
-        image_offset = image_offset.checked_add(image.len())?;
-    }
-
-    for image in images {
-        output.extend_from_slice(image);
-    }
-    Some(output)
-}
-
-fn read_u16_le(bytes: &[u8], offset: usize) -> Option<u16> {
-    let slice = bytes.get(offset..offset + 2)?;
-    Some(u16::from_le_bytes([slice[0], slice[1]]))
-}
-
-fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
-    let slice = bytes.get(offset..offset + 4)?;
-    Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
 fn find_best_png_icon(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
@@ -613,9 +217,8 @@ fn find_ico_blob(bytes: &[u8]) -> Option<&[u8]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_ico_from_group, decode_icon_blob, find_best_png_icon, find_ico_blob};
+    use super::{find_best_png_icon, find_ico_blob};
     use image::{ImageBuffer, Rgba};
-    use std::collections::BTreeMap;
 
     #[test]
     fn finds_embedded_ico_blob() {
@@ -679,86 +282,6 @@ mod tests {
         let decoded = decoded.unwrap_or_else(|| image::DynamicImage::new_rgba8(1, 1));
         assert_eq!(decoded.width(), 2);
         assert_eq!(decoded.height(), 2);
-    }
-
-    #[test]
-    fn rebuilds_single_entry_group_icon_from_twenty_byte_header() {
-        let icon_payload = vec![1_u8, 2, 3, 4];
-        let mut icons = BTreeMap::new();
-        icons.insert(1_u16, icon_payload.clone());
-
-        // GRPICONDIR (6) + 1x GRPICONDIRENTRY (14) = 20 bytes
-        let mut group = Vec::new();
-        group.extend_from_slice(&0_u16.to_le_bytes()); // reserved
-        group.extend_from_slice(&1_u16.to_le_bytes()); // type icon
-        group.extend_from_slice(&1_u16.to_le_bytes()); // count
-        group.push(16); // width
-        group.push(16); // height
-        group.push(0); // color count
-        group.push(0); // reserved
-        group.extend_from_slice(&1_u16.to_le_bytes()); // planes
-        group.extend_from_slice(&32_u16.to_le_bytes()); // bit count
-        group.extend_from_slice(&(u32::try_from(icon_payload.len()).unwrap_or(0)).to_le_bytes());
-        group.extend_from_slice(&1_u16.to_le_bytes()); // nID
-        assert_eq!(group.len(), 20);
-
-        let icons = icons
-            .iter()
-            .map(|(id, payload)| (*id, payload.as_slice()))
-            .collect();
-        let rebuilt = build_ico_from_group(&group, &icons);
-        assert!(rebuilt.is_some());
-        let rebuilt = rebuilt.unwrap_or_default();
-
-        assert_eq!(&rebuilt[0..2], &0_u16.to_le_bytes());
-        assert_eq!(&rebuilt[2..4], &1_u16.to_le_bytes());
-        assert_eq!(&rebuilt[4..6], &1_u16.to_le_bytes());
-        assert_eq!(&rebuilt[22..26], &icon_payload);
-    }
-
-    #[test]
-    fn decodes_png_backed_single_entry_group_icon() {
-        let image = ImageBuffer::from_pixel(2, 2, Rgba([255_u8, 0, 0, 255]));
-        let mut png_bytes = Vec::new();
-        let encoded = image::DynamicImage::ImageRgba8(image).write_to(
-            &mut std::io::Cursor::new(&mut png_bytes),
-            image::ImageFormat::Png,
-        );
-        assert!(encoded.is_ok());
-
-        let mut icons = BTreeMap::new();
-        icons.insert(1_u16, png_bytes.clone());
-
-        let mut group = Vec::new();
-        group.extend_from_slice(&0_u16.to_le_bytes());
-        group.extend_from_slice(&1_u16.to_le_bytes());
-        group.extend_from_slice(&1_u16.to_le_bytes());
-        group.push(2);
-        group.push(2);
-        group.push(0);
-        group.push(0);
-        group.extend_from_slice(&1_u16.to_le_bytes());
-        group.extend_from_slice(&32_u16.to_le_bytes());
-        group.extend_from_slice(&(u32::try_from(png_bytes.len()).unwrap_or(0)).to_le_bytes());
-        group.extend_from_slice(&1_u16.to_le_bytes());
-
-        let icons = icons
-            .iter()
-            .map(|(id, payload)| (*id, payload.as_slice()))
-            .collect();
-        let rebuilt = build_ico_from_group(&group, &icons);
-        assert!(rebuilt.is_some());
-        let decoded = decode_icon_blob(&rebuilt.unwrap_or_default());
-        assert!(decoded.is_some());
-    }
-
-    #[test]
-    fn rejects_truncated_group_icon_blob() {
-        let mut icons = BTreeMap::new();
-        icons.insert(1_u16, &[1_u8, 2, 3, 4][..]);
-
-        let truncated = [0_u8, 0, 1, 0, 1, 0, 16, 16];
-        assert!(build_ico_from_group(&truncated, &icons).is_none());
     }
 
     #[test]

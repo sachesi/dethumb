@@ -90,6 +90,9 @@ pub fn process_svg(path: &Path, out: &Path, size: u32) -> Result<(), ThumbnailEr
         .ok_or(ThumbnailError::PixmapCreate)?;
 
     let svg_size = tree.size();
+    if svg_size.width() <= 0.0 || svg_size.height() <= 0.0 {
+        return Err(ThumbnailError::InvalidSize(size));
+    }
     let scale = (size as f32 / svg_size.width()).min(size as f32 / svg_size.height());
     let tx = Transform::from_row(
         scale,

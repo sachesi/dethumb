@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::desktop::thumbnail::{IconFormat, detect_icon_format, process_raster, process_svg};
 
 use super::backends::pe_resource::PeResourceIconExtractor;
-use super::backends::windows_shell::WindowsShellIconExtractor;
 use super::cache::{ExeCacheKey, is_cache_hit, write_cache_key};
 use super::error::ExeThumbError;
 use super::pe::validate_executable_header;
@@ -17,7 +16,7 @@ const EXE_FALLBACK_ICON_NAMES: &[&str] = &[
     "application-x-executable",
     "application-x-generic",
 ];
-const BACKEND_CHAIN_MARKER: &str = "windows-shell|pe-resource-v2|freedesktop-fallback";
+const BACKEND_CHAIN_MARKER: &str = "pe-resource-v2|freedesktop-fallback";
 const FALLBACK_BACKEND_NAME: &str = "freedesktop-fallback";
 const MAX_EXE_BYTES: u64 = 512 * 1024 * 1024;
 const SUPPORTED_EXE_EXTENSION: &str = "exe";
@@ -96,8 +95,7 @@ pub fn generate_exe_thumbnail(
     record_cache_miss();
     record_extraction_attempt();
 
-    let extractors: [&dyn ExeIconExtractor; 3] = [
-        &WindowsShellIconExtractor,
+    let extractors: [&dyn ExeIconExtractor; 2] = [
         &PeResourceIconExtractor,
         &FallbackExeIconExtractor,
     ];
@@ -116,7 +114,10 @@ pub fn generate_exe_thumbnail(
                     eprintln!("[debug] backend={} succeeded", extractor.backend_name());
                 }
                 record_extraction_success();
-                return write_cache_key(out, &cache_key).map_err(map_io(path));
+                if let Err(e) = write_cache_key(out, &cache_key) && debug {
+                    eprintln!("[debug] failed to write cache key: {e}");
+                }
+                return Ok(());
             }
             Err(err) => {
                 if debug {
@@ -178,10 +179,7 @@ fn ensure_thumbnailable_pe_extension(path: &Path, debug: bool) -> Result<(), Exe
     }
 
     if debug {
-        eprintln!(
-            "skipping PE thumbnail: unsupported extension .{}",
-            extension
-        );
+        eprintln!("skipping PE thumbnail: unsupported extension .{extension}");
     }
     Err(ExeThumbError::NonThumbnailableExtension {
         path: path.to_path_buf(),
@@ -202,7 +200,6 @@ fn reason_for_error(error: &ExeThumbError) -> FallbackReason {
         ExeThumbError::InvalidPeFormat { .. } => FallbackReason::InvalidPeFormat,
         ExeThumbError::PermissionDenied { .. } => FallbackReason::PermissionDenied,
         ExeThumbError::Io { .. } => FallbackReason::Io,
-        ExeThumbError::NonThumbnailableExtension { .. } => FallbackReason::Other,
         _ => FallbackReason::Other,
     }
 }
