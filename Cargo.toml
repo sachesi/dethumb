@@ -1,4 +1,5 @@
 [package]
+authors = ["sachesi <xsachesi@pm.me>"]
 name = "dethumb"
 version = "0.3.2"
 edition = "2024"
