@@ -49,3 +49,32 @@ fn generates_thumbnail_from_absolute_raster_icon() {
     assert!(result.is_ok(), "expected successful thumbnail generation");
     assert!(out_path.is_file(), "expected output thumbnail file");
 }
+
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_output_path() {
+    let Ok(tmp) = TempDir::new() else {
+        panic!("tempdir should be created");
+    };
+
+    let icon_path = tmp.path().join("icon.png");
+    let desktop_path = tmp.path().join("app.desktop");
+    let real_target = tmp.path().join("real.png");
+    let out_path = tmp.path().join("thumb.png");
+
+    write_png(&icon_path);
+
+    let desktop_contents = format!(
+        "[Desktop Entry]\nType=Application\nName=Demo\nIcon={}\n",
+        icon_path.display()
+    );
+    assert!(fs::write(&desktop_path, desktop_contents).is_ok());
+    assert!(std::os::unix::fs::symlink(&real_target, &out_path).is_ok());
+
+    let args = CliArgs::new(desktop_path, out_path, 64);
+    assert!(matches!(
+        run_with_args(&args),
+        Err(AppError::SymlinkOutputPath(_))
+    ));
+    assert!(!real_target.exists(), "symlink target must not be written");
+}

@@ -116,6 +116,8 @@ pub enum AppError {
     Usage(String),
     #[error("Refusing unsafe output path with parent traversal: {0}")]
     UnsafeOutputPath(PathBuf),
+    #[error("Refusing to write through symlinked output path: {0}")]
+    SymlinkOutputPath(PathBuf),
     #[error("Bad size '{value}': {source}")]
     InvalidSize {
         value: String,
@@ -153,6 +155,10 @@ pub fn run_with_args(args: &CliArgs) -> Result<(), AppError> {
             path: args.input_path.clone(),
             source,
         })?;
+
+    if output_is_symlink(&args.output_path) {
+        return Err(AppError::SymlinkOutputPath(args.output_path.clone()));
+    }
 
     match detect_input_kind(&input_path) {
         InputKind::DesktopEntry => process_desktop_entry(&input_path, &args.output_path, args.size),
@@ -214,6 +220,10 @@ pub fn run_with_fallback() -> i32 {
             1
         }
     }
+}
+
+fn output_is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
 }
 
 fn is_non_thumbnailable(error: &AppError) -> bool {
