@@ -22,6 +22,14 @@ const RESOURCE_DATA_ENTRY_LEN: usize = 16;
 const RT_ICON: u32 = 3;
 const RT_GROUP_ICON: u32 = 14;
 const MAX_GROUP_ICON_ENTRIES: usize = 256;
+/// Windows caps a PE image at 96 sections; reject anything larger.
+const MAX_PE_SECTIONS: usize = 96;
+/// Sanity bound on entries in a single resource directory level.
+const MAX_RESOURCE_DIR_ENTRIES: usize = 8192;
+/// Strict per-axis pixel limit applied when decoding embedded icons.
+const MAX_DECODE_DIM: u32 = 8192;
+/// Upper bound on decoder allocations for a single embedded icon.
+const MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
 
 
 pub struct PeResourceIconExtractor;
@@ -60,7 +68,19 @@ fn extract_ico_blob(path: &Path, out: &Path, size: u32) -> Result<(), ExeThumbEr
 }
 
 fn decode_icon_blob(bytes: &[u8]) -> Option<image::DynamicImage> {
-    image::load_from_memory(bytes).ok()
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    reader.limits(decode_limits());
+    reader.decode().ok()
+}
+
+fn decode_limits() -> image::Limits {
+    let mut limits = image::Limits::no_limits();
+    limits.max_image_width = Some(MAX_DECODE_DIM);
+    limits.max_image_height = Some(MAX_DECODE_DIM);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    limits
 }
 
 fn score_match(image: &image::DynamicImage, target_size: u32) -> u64 {
@@ -139,7 +159,7 @@ fn find_best_group_icon_manual(bytes: &[u8], size: u32) -> Option<image::Dynamic
 
     let mut best: Option<(u64, image::DynamicImage)> = None;
     for group_blob in groups {
-        let Some(ico_blob) = build_ico_from_group(&group_blob, &icon_blobs) else {
+        let Some(ico_blob) = build_ico_from_group(group_blob, &icon_blobs) else {
             continue;
         };
         let Some(decoded) = decode_icon_blob(&ico_blob) else {
@@ -182,6 +202,9 @@ fn read_section_headers(
     mut offset: usize,
     number_of_sections: usize,
 ) -> Option<Vec<SectionHeader>> {
+    if number_of_sections > MAX_PE_SECTIONS {
+        return None;
+    }
     let mut sections = Vec::with_capacity(number_of_sections);
     for _ in 0..number_of_sections {
         if offset.checked_add(PE_SECTION_HEADER_LEN)? > bytes.len() {
@@ -329,6 +352,9 @@ fn read_resource_entries(bytes: &[u8], dir_offset: usize) -> Option<Vec<Resource
     let named_count = usize::from(read_u16_le(bytes, dir_offset + 12)?);
     let id_count = usize::from(read_u16_le(bytes, dir_offset + 14)?);
     let count = named_count.checked_add(id_count)?;
+    if count > MAX_RESOURCE_DIR_ENTRIES {
+        return None;
+    }
     let mut entries = Vec::with_capacity(count);
     let mut offset = dir_offset + RESOURCE_DIRECTORY_TABLE_LEN;
     for _ in 0..count {
@@ -395,11 +421,15 @@ fn read_resource_data_entry<'a>(
 
 fn rva_to_file_offset(rva: u32, sections: &[SectionHeader]) -> Option<usize> {
     for section in sections {
-        let size = section.virtual_size.max(section.raw_size);
+        let span = section.virtual_size.max(section.raw_size);
         let start = section.virtual_address;
-        let end = start.checked_add(size)?;
+        let end = start.checked_add(span)?;
         if (start..end).contains(&rva) {
             let within = rva.checked_sub(start)?;
+            // RVAs past the raw data are virtual-only and not backed by file bytes.
+            if within >= section.raw_size {
+                return None;
+            }
             let file_offset = section.raw_ptr.checked_add(within)?;
             return usize::try_from(file_offset).ok();
         }
