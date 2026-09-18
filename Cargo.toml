@@ -8,7 +8,7 @@ edition = "2024"
 freedesktop_entry_parser = "2.0"
 freedesktop-icons = "0.4"
 image = { version = "0.25", default-features = false, features = ["ico", "jpeg", "png"] }
-resvg = "0.47"
+resvg = "0.48"
 tiny-skia = "0.12"
 usvg = "0.47"
 thiserror = "2"
