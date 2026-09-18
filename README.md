@@ -21,6 +21,9 @@ Input type is detected by extension:
 cargo build --release
 ```
 
+Arch Linux: the AUR package `dethumb`, built from
+[packaging/aur/PKGBUILD](packaging/aur/PKGBUILD), which each release tag updates.
+
 ## License
 
 GPL-3.0-or-later — see `LICENSE`.
