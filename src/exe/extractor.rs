@@ -95,10 +95,8 @@ pub fn generate_exe_thumbnail(
     record_cache_miss();
     record_extraction_attempt();
 
-    let extractors: [&dyn ExeIconExtractor; 2] = [
-        &PeResourceIconExtractor,
-        &FallbackExeIconExtractor,
-    ];
+    let extractors: [&dyn ExeIconExtractor; 2] =
+        [&PeResourceIconExtractor, &FallbackExeIconExtractor];
 
     let mut last_error = ExeThumbError::NoIconAvailable {
         path: path.to_path_buf(),
@@ -114,7 +112,9 @@ pub fn generate_exe_thumbnail(
                     eprintln!("[debug] backend={} succeeded", extractor.backend_name());
                 }
                 record_extraction_success();
-                if let Err(e) = write_cache_key(out, &cache_key) && debug {
+                if let Err(e) = write_cache_key(out, &cache_key)
+                    && debug
+                {
                     eprintln!("[debug] failed to write cache key: {e}");
                 }
                 return Ok(());

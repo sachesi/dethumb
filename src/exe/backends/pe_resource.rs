@@ -31,7 +31,6 @@ const MAX_DECODE_DIM: u32 = 8192;
 /// Upper bound on decoder allocations for a single embedded icon.
 const MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
 
-
 pub struct PeResourceIconExtractor;
 
 impl ExeIconExtractor for PeResourceIconExtractor {
@@ -117,7 +116,9 @@ fn find_best_group_icon_pelite(bytes: &[u8], size: u32) -> Option<image::Dynamic
     let mut best: Option<(u64, image::DynamicImage)> = None;
 
     for icon_result in resources.icons() {
-        let Ok((_name, group_icon)) = icon_result else { continue };
+        let Ok((_name, group_icon)) = icon_result else {
+            continue;
+        };
 
         let mut ico = Vec::new();
         if group_icon.write(&mut ico).is_err() {

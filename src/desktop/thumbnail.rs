@@ -174,10 +174,12 @@ pub fn process_raster(path: &Path, size: u32, out_png: &Path) -> Result<(), Thum
             source: image::ImageError::IoError(source),
         })?;
     reader.limits(decode_limits());
-    let img = reader.decode().map_err(|source| ThumbnailError::DecodeImage {
-        path: path.display().to_string(),
-        source,
-    })?;
+    let img = reader
+        .decode()
+        .map_err(|source| ThumbnailError::DecodeImage {
+            path: path.display().to_string(),
+            source,
+        })?;
     let thumb = resize_image(&img, size);
     write_image(out_png, &thumb)
 }
