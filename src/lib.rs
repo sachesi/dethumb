@@ -176,8 +176,9 @@ fn process_desktop_entry(input_path: &Path, output_path: &Path, size: u32) -> Re
     let entry =
         parse_entry(input_path).map_err(|source| AppError::DesktopParse(source.to_string()))?;
     let icon = entry
-        .section("Desktop Entry")
-        .attr("Icon")
+        .get("Desktop Entry", "Icon")
+        .and_then(<[String]>::last)
+        .map(String::as_str)
         .filter(|icon| !icon.trim().is_empty())
         .ok_or(AppError::MissingIcon)?;
 
