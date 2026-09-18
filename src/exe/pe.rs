@@ -12,7 +12,7 @@ pub fn validate_executable_header(
 ) -> std::io::Result<bool> {
     let mut dos_header = [0_u8; DOS_HEADER_LEN];
     let bytes_read = file.read(&mut dos_header)?;
-    if bytes_read < dos_header.len() || dos_header[0..2] != [b'M', b'Z'] {
+    if bytes_read < dos_header.len() || dos_header[0..2] != *b"MZ" {
         return Ok(false);
     }
 
