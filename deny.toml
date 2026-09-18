@@ -1,0 +1,5 @@
+# cargo deny check advisories: known vulnerabilities, and unmaintained crates depended on
+# directly.
+
+[advisories]
+unmaintained = "workspace"
