@@ -1,0 +1,21 @@
+Source: dethumb
+Section: graphics
+Priority: optional
+Maintainer: sachesi <xsachesi@pm.me>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc (>= 1.85),
+               pkg-config
+Standards-Version: 4.7.2
+Homepage: https://github.com/sachesi/dethumb
+Rules-Requires-Root: no
+
+Package: dethumb
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Description: Thumbnailer for Linux .desktop files and Windows .exe binaries
+ dethumb generates PNG thumbnails for Linux .desktop files and Windows .exe
+ binaries, integrating with file managers via the freedesktop thumbnailer
+ protocol. Desktop entries are rendered from their Icon= entry using the system
+ icon theme; executables have their embedded icon extracted from PE resources.
