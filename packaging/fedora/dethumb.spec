@@ -3,6 +3,7 @@
 
 
 Name:           dethumb
+# The release workflow and Copr set Version to the tag they build.
 Version:        0.3.3
 Release:        1%{?dist}
 Summary:        Thumbnailer for Linux .desktop files and Windows .exe binaries
@@ -10,6 +11,8 @@ Summary:        Thumbnailer for Linux .desktop files and Windows .exe binaries
 License:        GPL-3.0-or-later
 URL:            https://github.com/sachesi/dethumb
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
+# The crates the build needs, from the release, so that it runs without a network.
+Source1:        %{url}/releases/download/v%{version}/%{name}-%{version}-vendor.tar.xz
 
 BuildRequires:  cargo >= 1.85
 BuildRequires:  rust >= 1.85
@@ -25,12 +28,12 @@ resources.}
 %description %{_description}
 
 %prep
-%autosetup -n %{name}-%{version}
+%autosetup -n %{name}-%{version} -b 1
 
 %build
 export CARGO_HOME=$PWD/.cargo-home
 export RUSTFLAGS="%{?build_rustflags}"
-cargo build --release
+cargo build --release --offline --locked
 
 %install
 install -Dpm 0755 target/release/dethumb %{buildroot}%{_bindir}/dethumb
