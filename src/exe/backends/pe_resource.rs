@@ -681,7 +681,7 @@ mod tests {
 
             let found = find_ico_blob(&bytes);
             if let Some(blob) = found {
-                assert!(!blob.is_empty());
+                assert_ne!(blob, []);
                 assert!(blob.len() <= bytes.len());
             }
         }
